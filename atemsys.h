@@ -73,6 +73,9 @@
  *  V1.4.09 - Add atemsys as PCI driver for Intel, Realtek and Beckhoff
  *            Add memory allocation and mapping on platform / PCI driver device
  *            Fix PHY driver for FslFec 64Bit
+ *  V1.4.10 - Fix Device Tree Ethernet driver: Mdio/Phy sup-node, test 4.6.x kernel
+ *            Add Device Tree Ethernet driver support for GEM
+ *            Fix PCI driver: force DMA to 32 bit
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -86,10 +89,10 @@
 #define EC_MAKEVERSION(a,b,c,d) (((a)<<24)+((b)<<16)+((c)<<8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.09"
-#define ATEMSYS_VERSION_NUM  1,4,9
+#define ATEMSYS_VERSION_STR "1.4.10"
+#define ATEMSYS_VERSION_NUM  1,4,10
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,9,0)
+#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,10,0)
 #endif
 
 /* support selection */
@@ -107,15 +110,15 @@
 #define MAJOR_NUM 101
 
 #if (defined INCLUDE_ATEMSYS_PCI_DOMAIN)
-#define ATEMSYS_IOCTL_PCI_FIND_DEVICE           _IOWR(MAJOR_NUM, 0, ATEMSYS_T_PCI_SELECT_DESC)
-#define ATEMSYS_IOCTL_PCI_CONF_DEVICE           _IOWR(MAJOR_NUM, 1, ATEMSYS_T_PCI_SELECT_DESC)
+#define ATEMSYS_IOCTL_PCI_FIND_DEVICE           _IOWR(MAJOR_NUM,  0, ATEMSYS_T_PCI_SELECT_DESC)
+#define ATEMSYS_IOCTL_PCI_CONF_DEVICE           _IOWR(MAJOR_NUM,  1, ATEMSYS_T_PCI_SELECT_DESC)
 #endif
-#define ATEMSYS_IOCTL_PCI_RELEASE_DEVICE        _IO(MAJOR_NUM,   2)
-#define ATEMSYS_IOCTL_INT_CONNECT               _IOW(MAJOR_NUM,  3, __u32)
-#define ATEMSYS_IOCTL_INT_DISCONNECT            _IOW(MAJOR_NUM,  4, __u32)
-#define ATEMSYS_IOCTL_INT_INFO                  _IOR(MAJOR_NUM,  5, ATEMSYS_T_INT_INFO)
-#define ATEMSYS_IOCTL_MOD_GETVERSION            _IOR(MAJOR_NUM,  6, __u32)
-#define ATEMSYS_IOCTL_CPU_ENABLE_CYCLE_COUNT    _IOW(MAJOR_NUM,  7, __u32)
+#define ATEMSYS_IOCTL_PCI_RELEASE_DEVICE        _IO(MAJOR_NUM,    2)
+#define ATEMSYS_IOCTL_INT_CONNECT               _IOW(MAJOR_NUM,   3, __u32)
+#define ATEMSYS_IOCTL_INT_DISCONNECT            _IOW(MAJOR_NUM,   4, __u32)
+#define ATEMSYS_IOCTL_INT_INFO                  _IOR(MAJOR_NUM,   5, ATEMSYS_T_INT_INFO)
+#define ATEMSYS_IOCTL_MOD_GETVERSION            _IOR(MAJOR_NUM,   6, __u32)
+#define ATEMSYS_IOCTL_CPU_ENABLE_CYCLE_COUNT    _IOW(MAJOR_NUM,   7, __u32)
 #define ATEMSYS_IOCTL_GET_MAC_INFO              _IOWR(MAJOR_NUM,  8, ATEMSYS_T_MAC_INFO)
 #define ATEMSYS_IOCTL_PHY_START_STOP            _IOWR(MAJOR_NUM,  9, ATEMSYS_T_PHY_START_STOP_INFO)
 #define ATEMSYS_IOCTL_GET_MDIO_ORDER            _IOWR(MAJOR_NUM, 10, ATEMSYS_T_MDIO_ORDER)

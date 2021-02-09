@@ -135,7 +135,7 @@
 #include <linux/device.h>
 
 #if ((defined CONFIG_OF) \
-       && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0) /* not tested */))
+       && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0) /* not tested */))
 #define INCLUDE_ATEMSYS_DT_DRIVER    1
 #include <linux/etherdevice.h>
 #include <linux/clk.h>
@@ -513,8 +513,10 @@ static void dev_munmap(struct vm_area_struct *vma)
 #if (defined CONFIG_PCI)
    else
    {
-#if ((defined __aarch64__) || (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
-    || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))))
+#if ((defined __aarch64__) \
+    || (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
+    || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) \
+    || ((defined __amd64__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) )
       dma_free_coherent(&pMmapDesc->pDevDesc->pPcidev->dev, pMmapDesc->len, pMmapDesc->pVirtAddr, pMmapDesc->dmaAddr);
 #else
       pci_free_consistent(pMmapDesc->pDevDesc->pPcidev, pMmapDesc->len, pMmapDesc->pVirtAddr, pMmapDesc->dmaAddr);
@@ -1531,8 +1533,10 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
 #if (defined CONFIG_PCI)
       if (pDevDesc->pPcidev != NULL)
       {
-#if ((defined __aarch64__) || (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
-    || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))))
+#if ((defined __aarch64__) \
+    || (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
+    || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) \
+    || ((defined __amd64__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) )
          pVa = dma_alloc_coherent(&pDevDesc->pPcidev->dev, dwLen, &dmaAddr, GFP_KERNEL);
          if (NULL == pVa)
          {
@@ -1664,8 +1668,10 @@ ExitAndFree:
 #if (defined CONFIG_PCI)
    if (pDevDesc->pPcidev != NULL)
    {
-#if ((defined __aarch64__) || (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
-    || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0))))
+#if ((defined __aarch64__) \
+    || (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
+    || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) \
+    || ((defined __amd64__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) )
       dma_free_coherent(&pDevDesc->pPcidev->dev, dwLen, pVa, dmaAddr);
 #else
       pci_free_consistent(pDevDesc->pPcidev, dwLen, pVa, dmaAddr);
@@ -2529,7 +2535,15 @@ static int MdioInit(struct platform_device *pPDev)
     }
     else
     {
-        nRes = mdiobus_register(pDrvDescPrivate->pMdioBus);
+        if (NULL == pDrvDescPrivate->pPhyNode)
+        {
+            nRes = mdiobus_register(pDrvDescPrivate->pMdioBus);
+        }
+        else
+        {
+            /* no Mdio sub-node use main node */
+            nRes = of_mdiobus_register(pDrvDescPrivate->pMdioBus, pDrvDescPrivate->pDevNode);
+        }
     }
     if (0 != nRes)
     {
@@ -2838,24 +2852,27 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
 #endif
 
         /* get phy-mode */
-        INF("%s: phy-mode: %s\n", pPDev->name , szTempString);
         pDrvDescPrivate->PhyInterface = of_get_phy_mode(pPDev->dev.of_node);
         switch (pDrvDescPrivate->PhyInterface)
         {
             case PHY_INTERFACE_MODE_MII:
             {
+                INF("%s: phy-mode: MII\n", pPDev->name);
                 pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_MII;
             } break;
             case PHY_INTERFACE_MODE_RMII:
             {
+                INF("%s: phy-mode: RMII\n", pPDev->name);
                 pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_RMII;
             } break;
             case PHY_INTERFACE_MODE_GMII:
             {
+                INF("%s: phy-mode: GMII\n", pPDev->name);
                 pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_GMII;
             } break;
             case PHY_INTERFACE_MODE_SGMII:
             {
+                INF("%s: phy-mode: SGMII\n", pPDev->name);
                 pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_SGMII;
             } break;
             case PHY_INTERFACE_MODE_RGMII_ID:
@@ -2863,13 +2880,14 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
             case PHY_INTERFACE_MODE_RGMII_TXID:
             case PHY_INTERFACE_MODE_RGMII:
             {
+                INF("%s: phy-mode: RGMII\n", pPDev->name);
                 pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_RGMII;
             } break;
             default:
             {
                 pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_RGMII;
                 pDrvDescPrivate->PhyInterface = PHY_INTERFACE_MODE_RGMII;
-                WRN("%s: Missing phy-mode in the Device Tree, using rgmii\n", pPDev->name);
+                WRN("%s: Missing phy-mode in the Device Tree, using RGMII\n", pPDev->name);
             }
         }
 
@@ -2899,7 +2917,9 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
         }
 
         /* look for mdio node */
-        if (NULL == of_get_child_by_name(pDevNode, "mdio"))
+        if ((NULL == of_get_child_by_name(pDevNode, "mdio")) &&
+            (NULL == of_get_child_by_name(pDevNode, "phy")) &&
+            (NULL == of_get_child_by_name(pDevNode, "ethernet-phy")))
         {
             if (NULL != pDrvDescPrivate->pPhyNode)
             {
@@ -3118,14 +3138,11 @@ static int PciDriverProbe(struct pci_dev *pPciDev, const struct pci_device_id *i
         ERR("%s: PciDriverProbe: pci_enable_device_mem failed!\n", pci_name(pPciDev));
         goto Exit;
     }
-    nRes = dma_set_mask_and_coherent(&pPciDev->dev, DMA_BIT_MASK(64));
+    nRes = dma_set_mask_and_coherent(&pPciDev->dev, DMA_BIT_MASK(32));
     if (nRes)
     {
-        nRes = dma_set_mask_and_coherent(&pPciDev->dev, DMA_BIT_MASK(32));
-        if (nRes) {
-            ERR("%s: PciDriverProbe: dma_set_mask_and_coherent failed\n", pci_name(pPciDev));
-            goto Exit;
-        }
+        ERR("%s: PciDriverProbe: dma_set_mask_and_coherent failed\n", pci_name(pPciDev));
+        goto Exit;
     }
     pci_enable_pcie_error_reporting(pPciDev);
     nRes = pci_request_regions(pPciDev, ATEMSYS_DEVICE_NAME);
