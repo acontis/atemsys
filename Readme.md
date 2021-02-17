@@ -1,6 +1,6 @@
 # Kernel module atemsys
 
-Kernel module that grants direct access to hardware, improving the performance of the LinkLayers, used in EC-Master and EC-Simulator.
+Kernel module that grants direct access to hardware, improving the performance of the LinkLayers, used in the EtherCAT Master Stack Software EC-Master and EtherCAT Network Simulation Software EC-Simulator.
 
 It provides usermode access to:
 - PCI configuration space
