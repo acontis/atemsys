@@ -25,7 +25,7 @@ git clone https://github.com/acontis/atemsys.git
 #### 2a) if you have kernel headers available on your linux target you can build atemsys in the following way:
 ```bash
 cd atemsys
-make module
+make modules
 ```
 #### 2b) if no kernel headers are available
 1) get the Kernel sources of your desired version. This can be done e.g. in the following ways:
