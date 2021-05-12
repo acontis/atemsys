@@ -57,7 +57,7 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KERNELDIR=<path to target kerne
 
 >⚠️ Warning:
 >The kernel version and source code must exactly match that installed on the target.
->Custom kernel versions are typically used on embedded devices. Contact the manufacturer for the appropriate sources for your device.
+>Custom kernels with patched sources are often used in embedded devices. Contact the manufacturer for the appropriate sources for your device.
 
 #### 2) Unpack\clone the kernel into directory linux
 #### 3) Unpack `/proc/config.gz` from target into linux directory:
@@ -114,7 +114,10 @@ On the running system the compiled device tree file can be generally found next 
   - See also `EC_LINK_PARMS_IDENT_*` in `EcLink.h`
 - Remove all interrupt properties, like `interrupt-parent` and `interrupts`, in the `ethernet-phy` sub-node. 
 
-### Example: Ethernet device node for FslFec on Freescale/NXP i.MX6DL
+### Example
+:information_source: More example device trees for different platforms can be found in the [Wiki](https://github.com/acontis/atemsys/wiki).
+
+**Ethernet device node for FslFec on Freescale/NXP i.MX6DL**
 <pre><code>
 ethernet@02188000 {
   <strong>compatible = "atemsys";</strong>
