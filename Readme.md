@@ -22,92 +22,102 @@ Atemsys can be built natively on the target device:
 ```bash
 git clone https://github.com/acontis/atemsys.git
 ```
-#### 2a) if you have kernel headers available on your linux target you can build atemsys in the following way:
+#### 2) Install kernel headers if neccessary, e.g.
+```bash
+sudo apt-get install linux-headers-$(uname -r)
+```
+>:information_source: If kernel headers cannot be installed, see the cross-compiling section below.
+#### 3) Build atemsys
 ```bash
 cd atemsys
 make modules
 ```
-#### 2b) if no kernel headers are available
-1) get the Kernel sources of your desired version. This can be done e.g. in the following ways:
-- Clone with git: `git clone -b v4.4.189 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git`
-- Download from kernel.org: https://mirrors.edge.kernel.org/pub/linux/kernel/v4.x/linux-4.4.189.tar.gz
-2) Unpack\clone the kernel into directory linux
-3) Unpack `/proc/config.gz` from target into linux directory:
-```bash
-zcat config.gz > linux/.config
-```
-4) Prepare kernel:
-```bash
-cd linux
-make oldconfig
-make prepare
-make modules_prepare
-cd ..
-```
-5) Build atemsys
-```bash
-cd atemsys
-make KERNELDIR=../linux/ modules
-```
-
-#### 3) load the atemsys module
+#### 3) Load the atemsys module
 ```bash
 sudo insmod atemsys.ko
 ```
 
 ### Cross-Compile for a target device
-The atemsys kernel module can be cross compiled for a target device using:
-```
-git clone https://github.com/acontis/atemsys.git
-cd atemsys
-make ARCH=<...> CROSS_COMPILE=<...> KERNELDIR=<path to target kernel dir> modules
-```
-e.g. for ARM this works in the following way
+The atemsys kernel module can also be cross compiled for a target device. 
+To do this, the additional parameters `ARCH=`, `CROSS_COMPILE=` and `KERNELDIR=`must be passed to `make` e.g.:
 - ARM 32 Bit:
 ```
-make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- KERNELDIR=<path to target kernel dir> modules
+make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- KERNELDIR=<path to target kernel dir>
 ```
 - ARM 64 Bit:
 ```
-make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KERNELDIR=<path to target kernel dir> modules
+make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KERNELDIR=<path to target kernel dir>
 ```
 
-afterwards load the atemsys module on the target device using:
+#### 1) Get the Kernel sources of your desired version. This can be done e.g. in the following ways:
+- Clone with git: `git clone -b v4.4.189 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git`
+- Download from kernel.org: https://mirrors.edge.kernel.org/pub/linux/kernel/v4.x/linux-4.4.189.tar.gz
+
+>⚠️ Warning:
+>The kernel version and source code must exactly match that installed on the target.
+>Custom kernel versions are typically used on embedded devices. Contact the manufacturer for the appropriate sources for your device.
+
+#### 2) Unpack\clone the kernel into directory linux
+#### 3) Unpack `/proc/config.gz` from target into linux directory:
+```bash
+zcat config.gz > linux/.config
+```
+#### 4) Prepare kernel:
+```bash
+cd linux
+make ARCH=<...> CROSS_COMPILE=<...> KERNELDIR=<path to target kernel dir> oldconfig
+make ARCH=<...> CROSS_COMPILE=<...> KERNELDIR=<path to target kernel dir> prepare
+make ARCH=<...> CROSS_COMPILE=<...> KERNELDIR=<path to target kernel dir> modules_prepare
+cd ..
+```
+#### 5) Get the latest version of atemsys
+```bash
+git clone https://github.com/acontis/atemsys.git
+```
+#### 6) Build atemsys
+```
+cd atemsys
+make ARCH=<...> CROSS_COMPILE=<...> KERNELDIR=<path to target kernel dir> modules
+```
+#### 7) Load the atemsys module
 ```bash
 sudo insmod atemsys.ko
 ```
 
-### Configuring acontis atemsys for Yocto Linux
+### Build with Yocto
+There are recipes for creating atemsys with Yocto. Further information can be found here https://github.com/acontis/meta-acontis.
 
-
-## Use Atemsys as Device Tree Ethernet Driver
-Atemsys as Device Tree based device driver for the Ethernet MAC can handle several upcoming issues:
+## Use atemsys as device tree Ethernet Driver
+Atemsys as device tree based device driver for the Ethernet MAC can handle several upcoming issues:
 - Latest Linux versions bring more complex power saving behavior. To solve this a Linux driver is necessary to claim the same as the native driver from the Linux power-related management systems.
-- Some PHY configurations are currently not supported by the EcMaster. As Linux driver the Atemsys can use the corresponding Linux PHY driver.
-- Systems with 2 Ethernet ports and shared Mdio bus can easier separated between Linux and EcMaster. The Ethernet port which provides the Mdio bus should be assigned to Linux. 
+- Some PHY configurations are currently not supported by the EC-Master. As Linux driver the atemsys can use the corresponding Linux PHY driver.
+- Systems with 2 Ethernet ports and shared Mdio bus can easier separated between Linux and EC-Master. The Ethernet port which provides the Mdio bus should be assigned to Linux. 
 
-Customize the Linux device tree:
-- The device tree file can be customized before compiling the kernel and modules at `<kernel sources>/arch/<cpu architecture>/boot/dts`
-- On the running system the compiled device tree file can be generally found next to the kernel image, which is normally in the `/boot` folder of the system. The \*.dtb-file can be un-compiled with the device tree compiler
-```bash
-> dtc -I dtb -O dts -f <file name>.dtb -o <file name>.dts
-```
-and recompiled with
-```bash
-> dtc -I dts -O dtb -f <file name>.dts -o <file name>.dtb
-```
+### Device tree
+The device tree file can be customized before compiling the kernel and modules at `<kernel sources>/arch/<cpu architecture>/boot/dts`. 
 
-- To assigned the compatible property has to be change to "atemsys"
-- Change the compatible property to "atemsys" so the Ethernet device tree node is assigned to the atemsys device driver.
-- Add atemsys-Ident and atemsys-Instance properties with the EC_LINK_PARMS_IDENT_* and the instance used by EcMaster, see EcLink.h
-- Remove all interrupted properties, like interrupt-parent and interrupts, in the ethernet-phy sub-node. 
+On the running system the compiled device tree file can be generally found next to the kernel image, which is normally in the `/boot` folder of the system. The `*.dtb`-file can be converted with the device tree compiler
+  ```bash
+  > dtc -I dtb -O dts -f <file name>.dtb -o <file name>.dts
+  ```
+  and recompiled with
+  ```bash
+  > dtc -I dts -O dtb -f <file name>.dts -o <file name>.dtb
+  ```
+### Customize device tree
+- Assign the Ethernet device tree node to the atemsys device driver by assigning the value `atemsys` to the `compatible` property. It is also possible to add `atemsys` to the existing `compatible` list
+- Add the properties `atemsys-Ident` and `atemsys-Instance`. 
+  - `atemsys-Ident` for the name of the link layer 
+  - `atemsys-Instance` with the instance number that is to be used by EC-Master.
+  - See also `EC_LINK_PARMS_IDENT_*` in `EcLink.h`
+- Remove all interrupt properties, like `interrupt-parent` and `interrupts`, in the `ethernet-phy` sub-node. 
 
 ### Example: Ethernet device node for FslFec on Freescale/NXP i.MX6DL
-```
+<pre><code>
 ethernet@02188000 {
-  compatible = "atemsys";
-  atemsys-Ident = "FslFec";
-  atemsys-Instance = <0x1>;
+  <strong>compatible = "atemsys";</strong>
+  <strong>atemsys-Ident = "FslFec";</strong>
+  <strong>atemsys-Instance = <0x1>;</strong>
   reg = <0x2188000 0x4000>;
   interrupts-extended = <0x1 0x0 0x76 0x4 0x1 0x0 0x77 0x4>;
   clocks = <0x2 0x75 0x2 0x75 0x2 0xbe>;
@@ -132,6 +142,4 @@ ethernet@02188000 {
     };
   };
 };
-```
-
-
+</code></pre>
