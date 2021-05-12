@@ -50,8 +50,10 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- KERNELDIR=<path to target kerne
 ```
 
 #### 1) Get the Kernel sources of your desired version. This can be done e.g. in the following ways:
-- Clone with git: `git clone -b v4.4.189 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git`
-- Download from kernel.org: https://mirrors.edge.kernel.org/pub/linux/kernel/v4.x/linux-4.4.189.tar.gz
+- Clone with git: 
+  `git clone -b v4.4.189 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git`
+- Download from kernel.org:
+  https://mirrors.edge.kernel.org/pub/linux/kernel/v4.x/linux-4.4.189.tar.gz
 
 >⚠️ Warning:
 >The kernel version and source code must exactly match that installed on the target.
@@ -88,10 +90,10 @@ sudo insmod atemsys.ko
 There are recipes for creating atemsys with Yocto. Further information can be found here https://github.com/acontis/meta-acontis.
 
 ## Use atemsys as device tree Ethernet Driver
-Atemsys as device tree based device driver for the Ethernet MAC can handle several upcoming issues:
+Atemsys as device tree based platform device driver for the Ethernet MAC can handle several upcoming issues:
 - Latest Linux versions bring more complex power saving behavior. To solve this a Linux driver is necessary to claim the same as the native driver from the Linux power-related management systems.
 - Some PHY configurations are currently not supported by the EC-Master. As Linux driver the atemsys can use the corresponding Linux PHY driver.
-- Systems with 2 Ethernet ports and shared Mdio bus can easier separated between Linux and EC-Master. The Ethernet port which provides the Mdio bus should be assigned to Linux. 
+- Systems with 2 Ethernet ports and a shared Mdio bus can be separated more easily between Linux and the EC-Master. The Ethernet port that provides the Mdio bus should be assigned to Linux.
 
 ### Device tree
 The device tree file can be customized before compiling the kernel and modules at `<kernel sources>/arch/<cpu architecture>/boot/dts`. 
