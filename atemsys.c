@@ -151,7 +151,8 @@
 #include <linux/wait.h>
 #include <asm/param.h>
 #endif
-#if (defined CONFIG_PCI)
+#if ((defined CONFIG_PCI) \
+       && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0) /* not tested */))
 #define INCLUDE_ATEMSYS_PCI_DRIVER    1
 #include <linux/aer.h>
 #endif
@@ -2338,6 +2339,11 @@ static void UpdatePhyInfoByLinuxPhyDriver(struct net_device *ndev)
     struct phy_device* phy_dev = ndev->phydev;
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(ndev);
 
+    if (LOGLEVEL_DEBUG <= loglevel)
+    {
+        phy_print_status(phy_dev);
+    }
+
     pDrvDescPrivate->PhyInfo.dwLink = phy_dev->link;
     pDrvDescPrivate->PhyInfo.dwDuplex = phy_dev->duplex;
     pDrvDescPrivate->PhyInfo.dwSpeed = phy_dev->speed;
@@ -2528,6 +2534,9 @@ static int MdioInit(struct platform_device *pPDev)
     pDrvDescPrivate->pMdioBus->parent = &pPDev->dev;
 
     pDevNode = of_get_child_by_name(pDrvDescPrivate->pDevNode, "mdio");
+    if (NULL == pDevNode) {pDevNode = of_get_child_by_name(pDrvDescPrivate->pDevNode, "mdio0");}
+    if (NULL == pDevNode) {pDevNode = of_get_child_by_name(pDrvDescPrivate->pDevNode, "phy");}
+    if (NULL == pDevNode) {pDevNode = of_get_child_by_name(pDrvDescPrivate->pDevNode, "ethernet-phy");}
     if (NULL != pDevNode)
     {
         nRes = of_mdiobus_register(pDrvDescPrivate->pMdioBus, pDevNode);
@@ -2852,7 +2861,11 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
 #endif
 
         /* get phy-mode */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,5,0))
+        nRes = of_get_phy_mode(pPDev->dev.of_node, &pDrvDescPrivate->PhyInterface);
+#else
         pDrvDescPrivate->PhyInterface = of_get_phy_mode(pPDev->dev.of_node);
+#endif
         switch (pDrvDescPrivate->PhyInterface)
         {
             case PHY_INTERFACE_MODE_MII:
@@ -2917,8 +2930,9 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
         }
 
         /* look for mdio node */
-        if ((NULL == of_get_child_by_name(pDevNode, "mdio")) &&
-            (NULL == of_get_child_by_name(pDevNode, "phy")) &&
+        if ((NULL == of_get_child_by_name(pDevNode, "mdio"))    &&
+            (NULL == of_get_child_by_name(pDevNode, "mdio0"))   &&
+            (NULL == of_get_child_by_name(pDevNode, "phy"))     &&
             (NULL == of_get_child_by_name(pDevNode, "ethernet-phy")))
         {
             if (NULL != pDrvDescPrivate->pPhyNode)

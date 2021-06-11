@@ -76,6 +76,9 @@
  *  V1.4.10 - Fix Device Tree Ethernet driver: Mdio/Phy sup-node, test 4.6.x kernel
  *            Add Device Tree Ethernet driver support for GEM
  *            Fix PCI driver: force DMA to 32 bit
+ *  V1.4.11 - Fix for kernel >= 5.5.00  with device tree,
+ *            Fix Device Tree Ethernet driver support for DW3504
+ *            Fix PCI driver: only for kernel >= 4.4.00
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -89,10 +92,10 @@
 #define EC_MAKEVERSION(a,b,c,d) (((a)<<24)+((b)<<16)+((c)<<8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.10"
-#define ATEMSYS_VERSION_NUM  1,4,10
+#define ATEMSYS_VERSION_STR "1.4.11"
+#define ATEMSYS_VERSION_NUM  1,4,11
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,10,0)
+#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,11,0)
 #endif
 
 /* support selection */
