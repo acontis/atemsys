@@ -307,24 +307,24 @@ MODULE_DEVICE_TABLE(of, atemsys_ids);
 #if (defined INCLUDE_ATEMSYS_PCI_DRIVER)
 typedef struct _ATEMSYS_T_PCI_DRV_DESC_PRIVATE
 {
-    struct pci_dev          *pPciDev;
+    struct pci_dev*             pPciDev;
 
-    int                     nPciDomain;
-    int                     nPciBus;
-    int                     nPciDev;
-    int                     nPciFun;
+    int                         nPciDomain;
+    int                         nPciBus;
+    int                         nPciDev;
+    int                         nPciFun;
 
-    unsigned short          wVendorId;
-    unsigned short          wDevice;
-    unsigned short          wRevision;
-    unsigned short          wSubsystem_vendor;
-    unsigned short          wSubsystem_device;
+    unsigned short              wVendorId;
+    unsigned short              wDevice;
+    unsigned short              wRevision;
+    unsigned short              wSubsystem_vendor;
+    unsigned short              wSubsystem_device;
 
-    ATEMSYS_T_PCI_MEMBAR    aBars[ATEMSYS_PCI_MAXBAR];
-    int                     nBarCnt;
+    ATEMSYS_T_PCI_MEMBAR        aBars[ATEMSYS_PCI_MAXBAR];
+    int                         nBarCnt;
 
-    ATEMSYS_T_DEVICE_DESC*  pDevDesc;
-    unsigned int            dwIndex;
+    ATEMSYS_T_DEVICE_DESC*      pDevDesc;
+    unsigned int                dwIndex;
 } ATEMSYS_T_PCI_DRV_DESC_PRIVATE;
 
 static ATEMSYS_T_PCI_DRV_DESC_PRIVATE*  S_apPciDrvDescPrivate[ATEMSYS_MAX_NUMBER_DRV_INSTANCES];
@@ -551,15 +551,39 @@ static int dev_pci_select_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, ATEMSYS_T_PCI_
     s32 nPciBus, nPciDev, nPciFun;
     s32 nPciDomain = 0;
 
-    get_user(nPciBus, &pciDesc->nPciBus);
-    get_user(nPciDev, &pciDesc->nPciDev);
-    get_user(nPciFun, &pciDesc->nPciFun);
-    if (size == sizeof(ATEMSYS_T_PCI_SELECT_DESC))
+    switch (size)
     {
-        get_user(nPciDomain, &pciDesc->nPciDomain);
+    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00):
+    {
+        ATEMSYS_T_PCI_SELECT_DESC_v1_0_00* pciDesc_v1_0_00 = (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)pciDesc;
+        get_user(nPciBus,   &pciDesc_v1_0_00->nPciBus);
+        get_user(nPciDev,   &pciDesc_v1_0_00->nPciDev);
+        get_user(nPciFun,   &pciDesc_v1_0_00->nPciFun);
+    } break;
+    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05):
+    {
+        ATEMSYS_T_PCI_SELECT_DESC_v1_3_05* pciDesc_v1_3_05 = (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)pciDesc;
+        get_user(nPciBus,   &pciDesc_v1_3_05->nPciBus);
+        get_user(nPciDev,   &pciDesc_v1_3_05->nPciDev);
+        get_user(nPciFun,   &pciDesc_v1_3_05->nPciFun);
+        get_user(nPciDomain,&pciDesc_v1_3_05->nPciDomain);
+    } break;
+    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12):
+    {
+        ATEMSYS_T_PCI_SELECT_DESC_v1_4_12* pciDesc_v1_4_12 = (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)pciDesc;
+        get_user(nPciBus,   &pciDesc_v1_4_12->nPciBus);
+        get_user(nPciDev,   &pciDesc_v1_4_12->nPciDev);
+        get_user(nPciFun,   &pciDesc_v1_4_12->nPciFun);
+        get_user(nPciDomain,&pciDesc_v1_4_12->nPciDomain);
+    } break;
+    default:
+    {
+        nRetval = -EFAULT;
+        ERR("pci_conf: EFAULT\n");
+        goto Exit;
+    }
     }
 
-    
     /* Lookup for pci_dev object */
     pDevDesc->pPcidev       = NULL;
 #if (defined INCLUDE_ATEMSYS_PCI_DRIVER)
@@ -620,12 +644,49 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
     unsigned long ioBase;
     u32 dwIOLen;
     s32 nBar = 0;
-    ATEMSYS_T_PCI_SELECT_DESC *pPciDesc = (ATEMSYS_T_PCI_SELECT_DESC*)ioctlParam;
+    u32 dwAtemsysApiVersion = 0x010000;
+    ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*  pPciDesc_v1_4_12 = NULL;
+    ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*  pPciDesc_v1_3_05 = NULL;
+    ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*  pPciDesc_v1_0_00= NULL;
 
-    if (!ACCESS_OK(VERIFY_WRITE, pPciDesc, sizeof(ATEMSYS_T_PCI_SELECT_DESC)))
+    switch (size)
+    {
+    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00):
+    {
+        dwAtemsysApiVersion = 0x010000;
+        pPciDesc_v1_0_00 = (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam;
+        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_0_00, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00)))
+        {
+            nRetval = -EFAULT;
+        }
+    } break;
+    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05):
+    {
+        dwAtemsysApiVersion = 0x010305;
+        pPciDesc_v1_3_05 = (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam;
+        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_3_05, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05)))
+        {
+            nRetval = -EFAULT;
+        }
+    } break;
+    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12):
+    {
+        dwAtemsysApiVersion = 0x01040c;
+        pPciDesc_v1_4_12 = (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam;
+        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_4_12, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12)))
+        {
+            nRetval = -EFAULT;
+        }
+    } break;
+    default:
+    {
+        nRetval = -EFAULT;
+    }
+    }
+
+    if (-EFAULT == nRetval)
     {
         ERR("pci_conf: EFAULT\n");
-        nRetval = -EFAULT;
         goto Exit;
     }
 
@@ -634,7 +695,7 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
         WRN("pci_conf: error call ioctl(ATEMSYS_IOCTL_PCI_RELEASE_DEVICE) first\n");
         goto Exit;
      }
-    if (dev_pci_select_device(pDevDesc, pPciDesc, size) != DRIVER_SUCCESS)
+    if (dev_pci_select_device(pDevDesc, (ATEMSYS_T_PCI_SELECT_DESC*)ioctlParam, size) != DRIVER_SUCCESS)
     {
         goto Exit;
     }
@@ -644,11 +705,50 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
     {
         for (i = 0; i < pDevDesc->pPciDrvDesc->nBarCnt ; i++)
         {
-            put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOMem, &(pPciDesc->aBar[i].dwIOMem));
-            put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOLen, &(pPciDesc->aBar[i].dwIOLen));
+            if ((0x01040c != dwAtemsysApiVersion) && (pDevDesc->pPciDrvDesc->aBars[i].qwIOMem > 0xFFFFFFFF))
+            {
+                ERR("pci_conf: 64-Bit IO address not supported\n");
+                nRetval = -ENODEV;
+                goto Exit;
+            }
+
+            switch (dwAtemsysApiVersion)
+            {
+            case 0x010000:
+            {
+                put_user((u32)pDevDesc->pPciDrvDesc->aBars[i].qwIOMem, &(pPciDesc_v1_0_00->aBar[i].dwIOMem));
+                put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOLen,      &(pPciDesc_v1_0_00->aBar[i].dwIOLen));
+            } break;
+            case 0x010305:
+            {
+                put_user((u32)pDevDesc->pPciDrvDesc->aBars[i].qwIOMem, &(pPciDesc_v1_3_05->aBar[i].dwIOMem));
+                put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOLen,      &(pPciDesc_v1_3_05->aBar[i].dwIOLen));
+            } break;
+            case 0x01040c:
+            {
+                put_user(pDevDesc->pPciDrvDesc->aBars[i].qwIOMem,      &(pPciDesc_v1_4_12->aBar[i].qwIOMem));
+                put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOLen,      &(pPciDesc_v1_4_12->aBar[i].dwIOLen));
+            } break;
+            }
         }
-        put_user(pDevDesc->pPciDrvDesc->nBarCnt, &(pPciDesc->nBarCnt));
-        put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc->dwIrq)); /* assigned IRQ */
+        switch (dwAtemsysApiVersion)
+        {
+        case 0x010000:
+        {
+            put_user(pDevDesc->pPciDrvDesc->nBarCnt, &(pPciDesc_v1_0_00->nBarCnt));
+            put_user((u32)pDevDesc->pPcidev->irq,    &(pPciDesc_v1_0_00->dwIrq));
+        } break;
+        case 0x010305:
+        {
+            put_user(pDevDesc->pPciDrvDesc->nBarCnt, &(pPciDesc_v1_3_05->nBarCnt));
+            put_user((u32)pDevDesc->pPcidev->irq,    &(pPciDesc_v1_3_05->dwIrq));
+        } break;
+        case 0x01040c:
+        {
+            put_user(pDevDesc->pPciDrvDesc->nBarCnt, &(pPciDesc_v1_4_12->nBarCnt));
+            put_user((u32)pDevDesc->pPcidev->irq,    &(pPciDesc_v1_4_12->dwIrq));
+        } break;
+        }
     }
     else
 #endif
@@ -680,25 +780,57 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
                 /* IO area address */
                 ioBase = pci_resource_start(pDevDesc->pPcidev, i);
 
-                if (ioBase > 0xFFFFFFFF)
+                if ((0x01040c != dwAtemsysApiVersion) && (ioBase > 0xFFFFFFFF))
                 {
                     ERR("pci_conf: 64-Bit IO address not supported\n");
+                    pci_release_regions(pDevDesc->pPcidev);
                     pDevDesc->pPcidev = NULL;
                     nRetval = -ENODEV;
                     goto Exit;
                 }
 
-                put_user((u32)ioBase, &(pPciDesc->aBar[nBar].dwIOMem));
-
                 /* IO area length */
                 dwIOLen = pci_resource_len(pDevDesc->pPcidev, i);
-                put_user(dwIOLen, &(pPciDesc->aBar[nBar].dwIOLen));
+
+                switch (dwAtemsysApiVersion)
+                {
+                case 0x010000:
+                {
+                    put_user((u32)ioBase, &(pPciDesc_v1_0_00->aBar[nBar].dwIOMem));
+                    put_user(dwIOLen,     &(pPciDesc_v1_0_00->aBar[nBar].dwIOLen));
+                } break;
+                case 0x010305:
+                {
+                    put_user((u32)ioBase, &(pPciDesc_v1_3_05->aBar[nBar].dwIOMem));
+                    put_user(dwIOLen,     &(pPciDesc_v1_3_05->aBar[nBar].dwIOLen));
+                } break;
+                case 0x01040c:
+                {
+                    put_user((u64)ioBase, &(pPciDesc_v1_4_12->aBar[nBar].qwIOMem));
+                    put_user(dwIOLen,     &(pPciDesc_v1_4_12->aBar[nBar].dwIOLen));
+                } break;
+                }
 
                 nBar++;
             }
         }
 
-        put_user(nBar, &(pPciDesc->nBarCnt)); /* number of memory BARs */
+        /* number of memory BARs */
+        switch (dwAtemsysApiVersion)
+        {
+        case 0x010000:
+        {
+            put_user(nBar, &(pPciDesc_v1_0_00->nBarCnt));
+        } break;
+        case 0x010305:
+        {
+            put_user(nBar, &(pPciDesc_v1_3_05->nBarCnt));
+        } break;
+        case 0x01040c:
+        {
+            put_user(nBar, &(pPciDesc_v1_4_12->nBarCnt));
+        } break;
+        }
 
         /* Turn on Memory-Write-Invalidate if it is supported by the device*/
         #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24))
@@ -744,7 +876,23 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
         {
             INF("pci_conf: MSI configured for device %s\n", pci_name(pDevDesc->pPcidev));
         }
-        put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc->dwIrq)); /* assigned IRQ */
+
+        /* assigned IRQ */
+        switch (dwAtemsysApiVersion)
+        {
+        case 0x010000:
+        {
+            put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc_v1_0_00->dwIrq));
+        } break;
+        case 0x010305:
+        {
+            put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc_v1_3_05->dwIrq));
+        } break;
+        case 0x01040c:
+        {
+            put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc_v1_4_12->dwIrq));
+        } break;
+        }
     }
 
 #if defined(__arm__) && 0
@@ -764,51 +912,123 @@ Exit:
 
 static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlParam, size_t size)
 {
-   int nRetval = -EIO;
-   struct pci_dev* pPciDev = NULL;
-   s32 nVendor, nDevice, nInstance, nInstanceId;
-   ATEMSYS_T_PCI_SELECT_DESC* pPciDesc = (ATEMSYS_T_PCI_SELECT_DESC *) ioctlParam;
+    int nRetval = -EIO;
+    struct pci_dev* pPciDev = NULL;
+    s32 nVendor, nDevice, nInstance, nInstanceId;
+    u32 dwAtemsysApiVersion = 0x010000;
+    ATEMSYS_T_PCI_SELECT_DESC_v1_0_00* pPciDesc_v1_0_00 = NULL;
+    ATEMSYS_T_PCI_SELECT_DESC_v1_3_05* pPciDesc_v1_3_05 = NULL;
+    ATEMSYS_T_PCI_SELECT_DESC_v1_4_12* pPciDesc_v1_4_12 = NULL;
 
-   if (!ACCESS_OK(VERIFY_WRITE, pPciDesc, sizeof(ATEMSYS_T_PCI_SELECT_DESC)))
-   {
-      ERR("pci_find: EFAULT\n");
-      nRetval = -EFAULT;
-      goto Exit;
-   }
+    switch (size)
+    {
+    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00):
+    {
+        dwAtemsysApiVersion = 0x010000;
+        pPciDesc_v1_0_00 = (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam;
+        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_0_00, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00)))
+        {
+            nRetval = -EFAULT;
+        }
+    } break;
+    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05):
+    {
+        dwAtemsysApiVersion = 0x010305;
+        pPciDesc_v1_3_05 = (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam;
+        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_3_05, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05)))
+        {
+            nRetval = -EFAULT;
+        }
+    } break;
+    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12):
+    {
+        dwAtemsysApiVersion = 0x01040c;
+        pPciDesc_v1_4_12 = (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam;
+        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_4_12, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12)))
+        {
+            nRetval = -EFAULT;
+        }
+    } break;
+    default:
+    {
+        nRetval = -EFAULT;
+    }
+    }
 
-   get_user(nVendor, &pPciDesc->nVendID);
-   get_user(nDevice, &pPciDesc->nDevID);
-   get_user(nInstance, &pPciDesc->nInstance);
+    if (-EFAULT == nRetval)
+    {
+        ERR("pci_find: EFAULT\n");
+        nRetval = -EFAULT;
+        goto Exit;
+    }
 
-   INF("pci_find: ven 0x%x dev 0x%x nInstance %d\n", nVendor, nDevice, nInstance);
+    switch (dwAtemsysApiVersion)
+    {
+    case 0x010000:
+    {
+        get_user(nVendor,  &pPciDesc_v1_0_00->nVendID);
+        get_user(nDevice,  &pPciDesc_v1_0_00->nDevID);
+        get_user(nInstance,&pPciDesc_v1_0_00->nInstance);
+    } break;
+    case 0x010305:
+    {
+        get_user(nVendor,  &pPciDesc_v1_3_05->nVendID);
+        get_user(nDevice,  &pPciDesc_v1_3_05->nDevID);
+        get_user(nInstance,&pPciDesc_v1_3_05->nInstance);
+    } break;
+    case 0x01040c:
+    {
+        get_user(nVendor,  &pPciDesc_v1_4_12->nVendID);
+        get_user(nDevice,  &pPciDesc_v1_4_12->nDevID);
+        get_user(nInstance,&pPciDesc_v1_4_12->nInstance);
+    } break;
+    }
 
-   for (nInstanceId = 0; nInstanceId <= nInstance; nInstanceId++ )
-   {
-      pPciDev = pci_get_device (nVendor, nDevice, pPciDev);
-   }
+    INF("pci_find: ven 0x%x dev 0x%x nInstance %d\n", nVendor, nDevice, nInstance);
 
-   if (pPciDev == NULL)
-   {
-      WRN("pci_find: device 0x%x:0x%x:%d not found\n", nVendor, nDevice, nInstance);
-      nRetval = -ENODEV;
-      goto Exit;
-   }
+    for (nInstanceId = 0; nInstanceId <= nInstance; nInstanceId++ )
+    {
+        pPciDev = pci_get_device (nVendor, nDevice, pPciDev);
+    }
 
-   INF("pci_find: found 0x%x:0x%x:%d -> %s\n",
+    if (pPciDev == NULL)
+    {
+        WRN("pci_find: device 0x%x:0x%x:%d not found\n", nVendor, nDevice, nInstance);
+        nRetval = -ENODEV;
+        goto Exit;
+    }
+
+    INF("pci_find: found 0x%x:0x%x:%d -> %s\n",
        nVendor, nDevice, nInstance, pci_name(pPciDev));
 
-   put_user((s32)pPciDev->bus->number, &pPciDesc->nPciBus); /* Bus */
-   put_user((s32)PCI_SLOT(pPciDev->devfn), &pPciDesc->nPciDev); /* Device */
-   put_user((s32)PCI_FUNC(pPciDev->devfn), &pPciDesc->nPciFun); /* Function */
-   if (size == sizeof(ATEMSYS_T_PCI_SELECT_DESC) )
-   {
-      put_user((s32)pci_domain_nr(pPciDev->bus), &pPciDesc->nPciDomain); /* Domain */
-   }
+    switch (dwAtemsysApiVersion)
+    {
+    case 0x010000:
+    {
+        put_user((s32)pPciDev->bus->number,         &pPciDesc_v1_0_00->nPciBus);
+        put_user((s32)PCI_SLOT(pPciDev->devfn),     &pPciDesc_v1_0_00->nPciDev);
+        put_user((s32)PCI_FUNC(pPciDev->devfn),     &pPciDesc_v1_0_00->nPciFun);
+    } break;
+    case 0x010305:
+    {
+        put_user((s32)pci_domain_nr(pPciDev->bus),  &pPciDesc_v1_3_05->nPciDomain);
+        put_user((s32)pPciDev->bus->number,         &pPciDesc_v1_3_05->nPciBus);
+        put_user((s32)PCI_SLOT(pPciDev->devfn),     &pPciDesc_v1_3_05->nPciDev);
+        put_user((s32)PCI_FUNC(pPciDev->devfn),     &pPciDesc_v1_3_05->nPciFun);
+    } break;
+    case 0x01040c:
+    {
+        put_user((s32)pci_domain_nr(pPciDev->bus),  &pPciDesc_v1_4_12->nPciDomain);
+        put_user((s32)pPciDev->bus->number,         &pPciDesc_v1_4_12->nPciBus);
+        put_user((s32)PCI_SLOT(pPciDev->devfn),     &pPciDesc_v1_4_12->nPciDev);
+        put_user((s32)PCI_FUNC(pPciDev->devfn),     &pPciDesc_v1_4_12->nPciFun);
+    } break;
+    }
 
-   nRetval = 0;
+    nRetval = 0;
 
 Exit:
-   return nRetval;
+    return nRetval;
 }
 #endif /* CONFIG_PCI */
 
@@ -886,13 +1106,26 @@ static unsigned atemsys_of_map_irq_to_virq(const char *compatible, int deviceIdx
 #if (defined INCLUDE_IRQ_TO_DESC)
 static bool atemsys_irq_is_level(unsigned int irq_id)
 {
-    struct irq_desc *desc;
-    bool irq_is_level = true;
+     bool irq_is_level = true;
+     struct irq_data *irq_data = NULL;
 
-    desc = irq_to_desc(irq_id);
-    if (desc)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,11,1))
     {
-        irq_is_level = irqd_is_level_type(&desc->irq_data);
+        irq_data = irq_get_irq_data(irq_id);
+    }
+#else
+    {
+        struct irq_desc *desc;
+        desc = irq_to_desc(irq_id);
+        if (desc)
+        {
+            irq_data = &desc->irq_data;
+        }
+    }
+#endif
+    if (irq_data)
+    {
+        irq_is_level = irqd_is_level_type(irq_data);
     }
 
     return irq_is_level;
@@ -1608,7 +1841,7 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
          if ((NULL != pDevDesc->pPcidev) && (0 != pDevDesc->pPcidev->dev.dma_pfn_offset))
          {
             dwDmaPfn = dwDmaPfn + pDevDesc->pPcidev->dev.dma_pfn_offset;
-            INF("mmap: remap_pfn_range dma pfn 0x%x, offset pfn 0x%x\n", 
+            INF("mmap: remap_pfn_range dma pfn 0x%x, offset pfn 0x%x\n",
                         dwDmaPfn, (u32)pDevDesc->pPcidev->dev.dma_pfn_offset);
          }
          else
@@ -1770,21 +2003,22 @@ static long atemsys_ioctl(
    switch (cmd)
    {
 #if (defined CONFIG_PCI)
-      case ATEMSYS_IOCTL_PCI_FIND_DEVICE:
-      case ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_3_04:
+      case ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_0_00:
+      case ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_3_05:
+      case ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_4_12:
       {
-         nRetval = ioctl_pci_finddevice(pDevDesc, arg, _IOC_SIZE(cmd));
+         nRetval = ioctl_pci_finddevice(pDevDesc, arg, _IOC_SIZE(cmd)); /* size determines version */
          if (0 != nRetval)
          {
            /* be quiet. ioctl may fail */
            goto Exit;
          }
       } break;
-
-      case ATEMSYS_IOCTL_PCI_CONF_DEVICE:
-      case ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_3_04:
+      case ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_0_00:
+      case ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_3_05:
+      case ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_4_12:
       {
-         nRetval = ioctl_pci_configure_device(pDevDesc, arg, _IOC_SIZE(cmd));
+         nRetval = ioctl_pci_configure_device(pDevDesc, arg, _IOC_SIZE(cmd)); /* size determines version */
          if (0 != nRetval)
          {
             ERR("ioctl ATEMSYS_IOCTL_PCI_CONF_DEVICE failed: %d\n", nRetval);
@@ -2675,21 +2909,21 @@ static struct device_node * findDeviceTreeNode(struct platform_device *pPDev)
         pDevNode = of_find_node_by_name(pDevNode, "ethernet");
         if (NULL == pDevNode)
             break;
-        
+
         of_property_read_u32(pDevNode, "reg", &dwRegAddr32);
         of_property_read_u64(pDevNode, "reg", &qwRegAddr64);
-        
+
         sprintf(aBuff, "%x.ethernet", dwRegAddr32);
         if (strcmp(pPDev->name, aBuff) == 0) break;
-        
+
         sprintf(aBuff, "%x.ethernet", (unsigned int)qwRegAddr64);
         if (strcmp(pPDev->name, aBuff) == 0) break;
-        
+
         nTimeout--;
     }
     if (0 == nTimeout)
         pDevNode = NULL;
-    
+
     return pDevNode;
 }
 
@@ -2710,7 +2944,7 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
     {
         struct device_node* pDevNodeNew = NULL;
         WRN("%s: Device node empty\n", pPDev->name);
-        
+
         pDevNodeNew = findDeviceTreeNode(pPDev);
         if (NULL == pDevNodeNew)
         {
@@ -2973,7 +3207,7 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
     }
 
     /* start drivers of sub-nodes */
-    if (strcmp(pDrvDescPrivate->MacInfo.szIdent, "CPSW") == 0 
+    if (strcmp(pDrvDescPrivate->MacInfo.szIdent, "CPSW") == 0
        || strcmp(pDrvDescPrivate->MacInfo.szIdent, "ICSS") == 0)
     {
         of_platform_populate(pDevNode, NULL, NULL, &pPDev->dev);
@@ -3051,7 +3285,7 @@ static int CleanUpEthernetDriverOnRelease(ATEMSYS_T_DEVICE_DESC* pDevDesc)
 
     for (i = 0; i < ATEMSYS_MAX_NUMBER_DRV_INSTANCES; i++)
     {
-    
+
         pDrvDescPrivate = S_apDrvDescPrivate[i];
         if (NULL == pDrvDescPrivate)
         {
@@ -3103,12 +3337,13 @@ static struct platform_driver mac_driver = {
 
 #if (defined INCLUDE_ATEMSYS_PCI_DRIVER)
 #define ATEMSYS_PCI_DRIVER_NAME "atemsys_pci"
+#define PCI_VENDOR_ID_BECKHOFF  0x15EC
 
 static void PciDriverRemove(struct pci_dev *pPciDev)
 {
     ATEMSYS_T_PCI_DRV_DESC_PRIVATE *pPciDrvDescPrivate = (ATEMSYS_T_PCI_DRV_DESC_PRIVATE *)pci_get_drvdata(pPciDev);
 
-    if (NULL != pPciDrvDescPrivate) 
+    if (NULL != pPciDrvDescPrivate)
     {
         /* remove references to the device */
         if (NULL != pPciDrvDescPrivate->pDevDesc)
@@ -3138,11 +3373,12 @@ static int PciDriverProbe(struct pci_dev *pPciDev, const struct pci_device_id *i
     int dwIndex = 0;
 
     /* check if Ethernet device */
-    if (PCI_BASE_CLASS_NETWORK != ((pPciDev->class >> 16) & 0xFF))
+    if ((PCI_BASE_CLASS_NETWORK != ((pPciDev->class >> 16) & 0xFF)) &&
+        (PCI_VENDOR_ID_BECKHOFF != pPciDev->vendor))
     {
         ERR("%s: PciDriverProbe: No Ethenet device!\n", pci_name(pPciDev));
         /* don't attach driver */
-        return -1; 
+        return -1;
     }
 
     /* setup pci device */
@@ -3191,7 +3427,7 @@ static int PciDriverProbe(struct pci_dev *pPciDev, const struct pci_device_id *i
     pPciDrvDescPrivate->nPciFun           = PCI_FUNC(pPciDev->devfn);
 
     INF("%s: %s: connected vendor:0x%04x device:0x%04x rev:0x%02x - sub_vendor:0x%04x sub_device:0x%04x\n", pci_name(pPciDev), ATEMSYS_PCI_DRIVER_NAME,
-            pPciDev->vendor, pPciDev->device, pPciDev->revision, 
+            pPciDev->vendor, pPciDev->device, pPciDev->revision,
             pPciDev->subsystem_vendor, pPciDev->subsystem_device);
 
     /* find the memory BAR */
@@ -3207,14 +3443,7 @@ static int PciDriverProbe(struct pci_dev *pPciDev, const struct pci_device_id *i
           {
              /* IO area address */
              ioBase = pci_resource_start(pPciDev, i);
-
-             if (ioBase > 0xFFFFFFFF)
-             {
-                WRN("%s: PciDriverProbe: 64-Bit IO address not supported\n", pci_name(pPciDev));
-                break;
-             }
-
-             pPciDrvDescPrivate->aBars[nBar].dwIOMem = ioBase;
+             pPciDrvDescPrivate->aBars[nBar].qwIOMem = ioBase;
 
              /* IO area length */
              dwIOLen = pci_resource_len(pPciDev, i);
@@ -3274,7 +3503,6 @@ static const struct _ATEMSYS_PCI_INFO oAtemsysPciInfo = {
             .driver_data = (kernel_ulong_t)&info   \
             }
 
-#define PCI_VENDOR_ID_BECKHOFF  0x15EC
 static const struct pci_device_id pci_devtype[] = {
     ATEMSYS_DEVICE(INTEL,    PCI_ANY_ID, oAtemsysPciInfo), /* all intel    */
     ATEMSYS_DEVICE(REALTEK,  PCI_ANY_ID, oAtemsysPciInfo), /* all realtek  */

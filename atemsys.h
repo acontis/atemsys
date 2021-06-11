@@ -53,14 +53,14 @@
  *            Fix Xenomai Cobalt interrupt mode
  *  V1.3.15 - Fix crash while loading kernel module on ARM64
  *            Add support for kernel >= 5.0.00
- *  V1.3.16 - Handle API changes at kernel >= 4.18.00 
+ *  V1.3.16 - Handle API changes at kernel >= 4.18.00
  *            Fix ARM DMA allocation for PCIe
  *  V1.4.01 - Register atemsys as Device Tree Ethernet driver "atemsys"
  *            and use Linux PHY and Mdio-Bus Handling
  *  V1.4.02 - Device Tree Ethernet driver improved robustness for unbind linux driver
  *            Fix for kernel >= 5.0.00  with device tree,
  *            Fix ARM/AARCH64 DMA configuration for PCIe and
- *            Fix occasional insmod Kernel Oops 
+ *            Fix occasional insmod Kernel Oops
  *  V1.4.03 - Add log level (insmod atemsys loglevel=6) analog to kernel log level
  *  V1.4.04 - Fix Device Tree Ethernet driver robustness
  *            Add Device Tree Ethernet driver support for ICSS
@@ -79,6 +79,8 @@
  *  V1.4.11 - Fix for kernel >= 5.5.00  with device tree,
  *            Fix Device Tree Ethernet driver support for DW3504
  *            Fix PCI driver: only for kernel >= 4.4.00
+ *  V1.4.12 - Fix for kernel >= 5.11.00,
+ *            Add support for 64Bit IO Memory of PCI card
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -92,15 +94,33 @@
 #define EC_MAKEVERSION(a,b,c,d) (((a)<<24)+((b)<<16)+((c)<<8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.11"
-#define ATEMSYS_VERSION_NUM  1,4,11
+#define ATEMSYS_VERSION_STR "1.4.12"
+#define ATEMSYS_VERSION_NUM  1,4,12
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,11,0)
+#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,12,0)
 #endif
 
 /* support selection */
-#if USE_ATEMSYS_API_VERSION >= EC_MAKEVERSION(1,3,4,0)
-#define INCLUDE_ATEMSYS_PCI_DOMAIN
+
+#if   (USE_ATEMSYS_API_VERSION < EC_MAKEVERSION(1,3,5,0)) || (!defined USE_ATEMSYS_API_VERSION)
+/* till v1.3.04 */
+#define ATEMSYS_T_PCI_SELECT_DESC               ATEMSYS_T_PCI_SELECT_DESC_v1_0_00
+#define ATEMSYS_T_PCI_MEMBAR                    ATEMSYS_T_PCI_MEMBAR_v1_0_00
+#define ATEMSYS_IOCTL_PCI_FIND_DEVICE           ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_0_00
+#define ATEMSYS_IOCTL_PCI_CONF_DEVICE           ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_0_00
+
+#elif (USE_ATEMSYS_API_VERSION < EC_MAKEVERSION(1,4,12,0))
+/* v1.3.05 till v1.4.11 */
+#define ATEMSYS_T_PCI_SELECT_DESC               ATEMSYS_T_PCI_SELECT_DESC_v1_3_05
+#define ATEMSYS_T_PCI_MEMBAR                    ATEMSYS_T_PCI_MEMBAR_v1_3_05
+#define ATEMSYS_IOCTL_PCI_FIND_DEVICE           ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_3_05
+#define ATEMSYS_IOCTL_PCI_CONF_DEVICE           ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_3_05
+
+#else /* v1.4.12 and later */
+#define ATEMSYS_T_PCI_SELECT_DESC               ATEMSYS_T_PCI_SELECT_DESC_v1_4_12
+#define ATEMSYS_T_PCI_MEMBAR                    ATEMSYS_T_PCI_MEMBAR_v1_4_12
+#define ATEMSYS_IOCTL_PCI_FIND_DEVICE           ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_4_12
+#define ATEMSYS_IOCTL_PCI_CONF_DEVICE           ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_4_12
 #endif
 
 #define DRIVER_SUCCESS  0
@@ -112,10 +132,6 @@
  */
 #define MAJOR_NUM 101
 
-#if (defined INCLUDE_ATEMSYS_PCI_DOMAIN)
-#define ATEMSYS_IOCTL_PCI_FIND_DEVICE           _IOWR(MAJOR_NUM,  0, ATEMSYS_T_PCI_SELECT_DESC)
-#define ATEMSYS_IOCTL_PCI_CONF_DEVICE           _IOWR(MAJOR_NUM,  1, ATEMSYS_T_PCI_SELECT_DESC)
-#endif
 #define ATEMSYS_IOCTL_PCI_RELEASE_DEVICE        _IO(MAJOR_NUM,    2)
 #define ATEMSYS_IOCTL_INT_CONNECT               _IOW(MAJOR_NUM,   3, __u32)
 #define ATEMSYS_IOCTL_INT_DISCONNECT            _IOW(MAJOR_NUM,   4, __u32)
@@ -168,53 +184,88 @@
 
 typedef struct
 {
-   __u32  dwIOMem;           /* [out] IO Memory of PCI card (physical address) */
-   __u32  dwIOLen;           /* [out] Length of the IO Memory area*/
-} __attribute__((packed)) ATEMSYS_T_PCI_MEMBAR;
-
-typedef struct
-{
-   __s32        nVendID;          /* [in] vendor ID */
-   __s32        nDevID;           /* [in] device ID */
-   __s32        nInstance;        /* [in] instance to look for (0 is the first instance) */
-   __s32        nPciBus;          /* [in/out] bus */
-   __s32        nPciDev;          /* [in/out] device */
-   __s32        nPciFun;          /* [in/out] function */
-   __s32        nBarCnt;          /* [out] Number of entries in aBar */
-   __u32        dwIrq;            /* [out] IRQ or USE_PCI_INT */
-   ATEMSYS_T_PCI_MEMBAR   aBar[ATEMSYS_PCI_MAXBAR]; /* [out] IO memory */
-   __s32        nPciDomain;       /* [in/out] domain */
-} __attribute__((packed)) ATEMSYS_T_PCI_SELECT_DESC;
-
-typedef struct
-{
-   __u32        dwInterrupt;
+    __u32       dwInterrupt;
 } __attribute__((packed)) ATEMSYS_T_INT_INFO;
 
 
-/* Defines and declarations for IO controls in v1_3_04 and earliear*/
+/* v1_4_12 */
 
-#define ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_3_04    _IOWR(MAJOR_NUM, 0, ATEMSYS_T_PCI_SELECT_DESC_v1_3_04)
-#define ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_3_04    _IOWR(MAJOR_NUM, 1, ATEMSYS_T_PCI_SELECT_DESC_v1_3_04)
+#define ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_4_12   _IOWR(MAJOR_NUM,  0, ATEMSYS_T_PCI_SELECT_DESC_v1_4_12)
+#define ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_4_12   _IOWR(MAJOR_NUM,  1, ATEMSYS_T_PCI_SELECT_DESC_v1_4_12)
 
 typedef struct
 {
-   __s32        nVendID;          /* [in] vendor ID */
-   __s32        nDevID;           /* [in] device ID */
-   __s32        nInstance;        /* [in] instance to look for (0 is the first instance) */
-   __s32        nPciBus;          /* [in/out] bus */
-   __s32        nPciDev;          /* [in/out] device */
-   __s32        nPciFun;          /* [in/out] function */
-   __s32        nBarCnt;          /* [out] Number of entries in aBar */
-   __u32        dwIrq;            /* [out] IRQ or USE_PCI_INT */
-   ATEMSYS_T_PCI_MEMBAR   aBar[ATEMSYS_PCI_MAXBAR]; /* [out] IO memory */
-} __attribute__((packed)) ATEMSYS_T_PCI_SELECT_DESC_v1_3_04;
+    __u64       qwIOMem;          /* [out] IO Memory of PCI card (physical address) */
+    __u32       dwIOLen;          /* [out] Length of the IO Memory area*/
+} __attribute__((packed)) ATEMSYS_T_PCI_MEMBAR_v1_4_12;
 
-#if (!defined INCLUDE_ATEMSYS_PCI_DOMAIN)
-#define ATEMSYS_IOCTL_PCI_FIND_DEVICE           ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_3_04
-#define ATEMSYS_IOCTL_PCI_CONF_DEVICE           ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_3_04
-#endif
+typedef struct
+{
+    __s32       nVendID;          /* [in] vendor ID */
+    __s32       nDevID;           /* [in] device ID */
+    __s32       nInstance;        /* [in] instance to look for (0 is the first instance) */
+    __s32       nPciBus;          /* [in/out] bus */
+    __s32       nPciDev;          /* [in/out] device */
+    __s32       nPciFun;          /* [in/out] function */
+    __s32       nBarCnt;          /* [out] Number of entries in aBar */
+    __u32       dwIrq;            /* [out] IRQ or USE_PCI_INT */
+    ATEMSYS_T_PCI_MEMBAR_v1_4_12  aBar[ATEMSYS_PCI_MAXBAR]; /* [out] IO memory */
+    __s32       nPciDomain;       /* [in/out] domain */
+} __attribute__((packed)) ATEMSYS_T_PCI_SELECT_DESC_v1_4_12;
 
+
+/* v1_3_05 */
+
+#define ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_3_05   _IOWR(MAJOR_NUM,  0, ATEMSYS_T_PCI_SELECT_DESC_v1_3_05)
+#define ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_3_05   _IOWR(MAJOR_NUM,  1, ATEMSYS_T_PCI_SELECT_DESC_v1_3_05)
+
+typedef struct
+{
+    __u32       dwIOMem;          /* [out] IO Memory of PCI card (physical address) */
+    __u32       dwIOLen;          /* [out] Length of the IO Memory area*/
+} __attribute__((packed)) ATEMSYS_T_PCI_MEMBAR_v1_3_05;
+
+typedef struct
+{
+    __s32       nVendID;          /* [in] vendor ID */
+    __s32       nDevID;           /* [in] device ID */
+    __s32       nInstance;        /* [in] instance to look for (0 is the first instance) */
+    __s32       nPciBus;          /* [in/out] bus */
+    __s32       nPciDev;          /* [in/out] device */
+    __s32       nPciFun;          /* [in/out] function */
+    __s32       nBarCnt;          /* [out] Number of entries in aBar */
+    __u32       dwIrq;            /* [out] IRQ or USE_PCI_INT */
+    ATEMSYS_T_PCI_MEMBAR_v1_3_05  aBar[ATEMSYS_PCI_MAXBAR]; /* [out] IO memory */
+    __s32       nPciDomain;       /* [in/out] domain */
+} __attribute__((packed)) ATEMSYS_T_PCI_SELECT_DESC_v1_3_05;
+
+
+/* v1_0_00 */
+
+#define ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_3_04   ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_0_00
+#define ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_3_04   ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_0_00
+
+#define ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_0_00   _IOWR(MAJOR_NUM, 0, ATEMSYS_T_PCI_SELECT_DESC_v1_0_00)
+#define ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_0_00   _IOWR(MAJOR_NUM, 1, ATEMSYS_T_PCI_SELECT_DESC_v1_0_00)
+
+typedef struct
+{
+    __u32       dwIOMem;          /* [out] IO Memory of PCI card (physical address) */
+    __u32       dwIOLen;          /* [out] Length of the IO Memory area*/
+} __attribute__((packed)) ATEMSYS_T_PCI_MEMBAR_v1_0_00;
+
+typedef struct
+{
+    __s32       nVendID;          /* [in] vendor ID */
+    __s32       nDevID;           /* [in] device ID */
+    __s32       nInstance;        /* [in] instance to look for (0 is the first instance) */
+    __s32       nPciBus;          /* [in/out] bus */
+    __s32       nPciDev;          /* [in/out] device */
+    __s32       nPciFun;          /* [in/out] function */
+    __s32       nBarCnt;          /* [out] Number of entries in aBar */
+    __u32       dwIrq;            /* [out] IRQ or USE_PCI_INT */
+    ATEMSYS_T_PCI_MEMBAR_v1_0_00   aBar[ATEMSYS_PCI_MAXBAR]; /* [out] IO memory */
+} __attribute__((packed)) ATEMSYS_T_PCI_SELECT_DESC_v1_0_00;
 
 /* must match EC_T_PHYINTERFACE in EcLink.h */
 typedef enum _EC_T_PHYINTERFACE_ATEMSYS
