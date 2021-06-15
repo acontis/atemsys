@@ -67,9 +67,9 @@ zcat config.gz > linux/.config
 #### 4) Prepare kernel:
 ```bash
 cd linux
-make ARCH=<...> CROSS_COMPILE=<...> KERNELDIR=<path to target kernel dir> oldconfig
-make ARCH=<...> CROSS_COMPILE=<...> KERNELDIR=<path to target kernel dir> prepare
-make ARCH=<...> CROSS_COMPILE=<...> KERNELDIR=<path to target kernel dir> modules_prepare
+make ARCH=<...> CROSS_COMPILE=<...> oldconfig
+make ARCH=<...> CROSS_COMPILE=<...> prepare
+make ARCH=<...> CROSS_COMPILE=<...> modules_prepare
 cd ..
 ```
 #### 5) Get the latest version of atemsys
