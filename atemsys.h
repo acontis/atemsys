@@ -81,6 +81,9 @@
  *            Fix PCI driver: only for kernel >= 4.4.00
  *  V1.4.12 - Fix for kernel >= 5.11.00,
  *            Add support for 64Bit IO Memory of PCI card
+ *  V1.4.13 - Fix for kernel <= 3.16.00,
+ *            Add HAVE_ACCESS_OK_TYPE define to handle non-mainstream API variance
+ *            Connect to interrupt via binded device tree - platform device
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -94,10 +97,10 @@
 #define EC_MAKEVERSION(a,b,c,d) (((a)<<24)+((b)<<16)+((c)<<8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.12"
-#define ATEMSYS_VERSION_NUM  1,4,12
+#define ATEMSYS_VERSION_STR "1.4.13"
+#define ATEMSYS_VERSION_NUM  1,4,13
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,12,0)
+#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,13,0)
 #endif
 
 /* support selection */

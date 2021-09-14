@@ -232,16 +232,26 @@ MODULE_PARM_DESC(loglevel, "Set log level default LOGLEVEL_INFO, see /include/li
 #define DMA_BIT_MASK(n) (((n) == 64) ? ~0ULL : ((1ULL<<(n))-1))
 #endif
 
+#ifndef HAVE_ACCESS_OK_TYPE
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0))
-#define ACCESS_OK(type, addr, size)     access_ok(addr, size)
+#define HAVE_ACCESS_OK_TYPE 0
 #else
+#define HAVE_ACCESS_OK_TYPE 1
+#endif
+#endif
+
+#if HAVE_ACCESS_OK_TYPE
 #define ACCESS_OK(type, addr, size)     access_ok(type, addr, size)
+#else
+#define ACCESS_OK(type, addr, size)     access_ok(addr, size)
 #endif
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0))
-#define OF_DMA_CONFIGURE(dev, of_node)  of_dma_configure(dev, of_node, true)
+#define OF_DMA_CONFIGURE(dev, of_node) of_dma_configure(dev, of_node, true)
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,16,0))
+#define OF_DMA_CONFIGURE(dev, of_node) of_dma_configure(dev, of_node)
 #else
-#define OF_DMA_CONFIGURE(dev, of_node)  of_dma_configure(dev, of_node)
+#define OF_DMA_CONFIGURE(dev, of_node)
 #endif
 
 typedef struct _ATEMSYS_T_IRQ_DESC
@@ -1086,7 +1096,7 @@ static unsigned atemsys_of_map_irq_to_virq(const char *compatible, int deviceIdx
    device = atemsys_of_lookup_intnode(compatible, deviceIdx);
    if (! device)
    {
-      ERR("atemsys_of_map_irq_to_virq: device tree node '%s':%d not found.\n",
+      INF("atemsys_of_map_irq_to_virq: device tree node '%s':%d not found.\n",
          compatible, deviceIdx);
       return NO_IRQ;
    }
@@ -1101,6 +1111,48 @@ static unsigned atemsys_of_map_irq_to_virq(const char *compatible, int deviceIdx
 
    return virq;
 }
+#if (defined INCLUDE_ATEMSYS_DT_DRIVER)
+static unsigned int atemsysDtDriver_of_map_irq_to_virq(ATEMSYS_T_DEVICE_DESC* pDevDesc, int nIdx)
+{
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
+    struct device_node*         device          = NULL;
+    unsigned int                irq;
+    unsigned int                i               = 0;
+
+    /* get node from atemsys platform driver list */
+    for (i = 0; i < ATEMSYS_MAX_NUMBER_DRV_INSTANCES; i++)
+    {
+    
+        pDrvDescPrivate = S_apDrvDescPrivate[i];
+        if (NULL == pDrvDescPrivate)
+        {
+            continue;
+        }
+
+        if (pDrvDescPrivate->pDevDesc == pDevDesc)
+        {
+            device = pDrvDescPrivate->pDevNode;
+            break;
+        }
+    }
+    if ((NULL == device) || (NULL == pDrvDescPrivate))
+    {
+        INF("atemsysDtDriver_of_map_irq_to_virq: Cannot find connected device tree node\n");
+        return NO_IRQ;
+    }
+   
+    /* get interrupt from node */
+    irq = irq_of_parse_and_map(device, nIdx);
+    if (NO_IRQ == irq)
+    {
+        ERR("atemsysDtDriver_of_map_irq_to_virq: irq_of_parse_and_map failed for"
+            " device tree node Interrupt index %d\n",
+            nIdx);
+    }
+
+    return irq;
+}
+#endif /* INCLUDE_ATEMSYS_DT_DRIVER) */ 
 #endif /* CONFIG_DTC */
 
 #if (defined INCLUDE_IRQ_TO_DESC)
@@ -1169,10 +1221,16 @@ static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioct
           && ((irq = atemsys_of_map_irq_to_virq("xlnx,ps7-ethernet-1.00.a", ioctlParam, 0)) == NO_IRQ) /* ARM, Xilinx Zynq */
            )
         {
-            nRetval = -EPERM;
-            goto Exit;
+#if (defined INCLUDE_ATEMSYS_DT_DRIVER)
+            /* Get Interrupt from binded device tree node */
+            if ((irq = atemsysDtDriver_of_map_irq_to_virq(pDevDesc, ioctlParam)) == NO_IRQ)
+#endif
+            {
+                nRetval = -EPERM;
+                goto Exit;
+            }
         }
-        INF("intcon: Use IRQ (%d) from OF Device Tree\n", irq);
+        
 #else
         /* Use IRQ number passed as ioctl argument */
         irq = ioctlParam;
