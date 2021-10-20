@@ -84,6 +84,9 @@
  *  V1.4.13 - Fix for kernel <= 3.16.00,
  *            Add HAVE_ACCESS_OK_TYPE define to handle non-mainstream API variance
  *            Connect to interrupt via binded device tree - platform device
+ *  V1.4.14 - Fix for arm/aarch64 kernel >= 5.10.00,
+ *            Add support for 64Bit DMA Memory
+ *            Add support for PCI DMA address translation
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -97,10 +100,10 @@
 #define EC_MAKEVERSION(a,b,c,d) (((a)<<24)+((b)<<16)+((c)<<8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.13"
-#define ATEMSYS_VERSION_NUM  1,4,13
+#define ATEMSYS_VERSION_STR "1.4.14"
+#define ATEMSYS_VERSION_NUM  1,4,14
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,13,0)
+#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,14,0)
 #endif
 
 /* support selection */
@@ -146,6 +149,7 @@
 #define ATEMSYS_IOCTL_GET_MDIO_ORDER            _IOWR(MAJOR_NUM, 10, ATEMSYS_T_MDIO_ORDER)
 #define ATEMSYS_IOCTL_RETURN_MDIO_ORDER         _IOWR(MAJOR_NUM, 11, ATEMSYS_T_MDIO_ORDER)
 #define ATEMSYS_IOCTL_GET_PHY_INFO              _IOWR(MAJOR_NUM, 12, ATEMSYS_T_PHY_INFO)
+#define ATEMSYS_IOCTL_MOD_SET_API_VERSION       _IOR(MAJOR_NUM,  13, __u32)
 
 /* support legacy source code */
 #define IOCTL_PCI_FIND_DEVICE           ATEMSYS_IOCTL_PCI_FIND_DEVICE

@@ -133,6 +133,9 @@
 #include <linux/compat.h>
 #include <linux/slab.h>
 #include <linux/device.h>
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,10,0))
+#include <linux/dma-direct.h>
+#endif
 
 #if ((defined CONFIG_OF) \
        && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0) /* not tested */))
@@ -290,6 +293,9 @@ typedef struct _ATEMSYS_T_DEVICE_DESC
 #endif
 
     ATEMSYS_T_IRQ_DESC  irqDesc;
+
+    /* supported features */
+    bool bSupport64BitDma;
 } ATEMSYS_T_DEVICE_DESC;
 
 typedef struct _ATEMSYS_T_MMAP_DESC
@@ -643,6 +649,61 @@ Exit:
     return nRetval;
 }
 
+static int DefaultPciSettings(struct pci_dev* pPciDev)
+{
+    int nRetval = -EIO;
+    int nRes = -EIO;
+
+    /* Turn on Memory-Write-Invalidate if it is supported by the device*/
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24))
+    pci_set_mwi(pPciDev);
+#else
+    pci_try_set_mwi(pPciDev);
+#endif
+
+#if ((defined __aarch64__) && (defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_DEVICE) || \
+        defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU) || defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU_ALL)))
+    if (0 != pPciDev->dev.dma_coherent)
+    {
+        pPciDev->dev.dma_coherent = 0;
+        INF("%s: DefaultPciSettings: Clear device dma_coherent bit!\n", pci_name(pPciDev));
+    }
+#endif
+
+#if ((LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)) || !(defined __aarch64__))
+    nRes = dma_set_mask_and_coherent(&pPciDev->dev, DMA_BIT_MASK(32));
+    if (nRes)
+#endif
+    {
+        nRes = dma_set_mask_and_coherent(&pPciDev->dev, DMA_BIT_MASK(64));
+        if (nRes)
+        {
+            ERR("%s: DefaultPciSettings: dma_set_mask_and_coherent failed\n", pci_name(pPciDev));
+            nRetval = nRes;
+            goto Exit;
+        }
+    }
+    pci_set_master(pPciDev);
+
+    /* Try to enable MSI (Message Signaled Interrupts). MSI's are non shared, so we can
+    * use interrupt mode, also if we have a non exclusive interrupt line with legacy
+    * interrupts.
+    */
+    if (pci_enable_msi(pPciDev))
+    {
+        INF("%s: DefaultPciSettings: legacy INT configured\n", pci_name(pPciDev));
+    }
+    else
+    {
+        INF("%s: DefaultPciSettings: MSI configured\n", pci_name(pPciDev));
+    }
+
+    nRetval = 0;
+
+Exit:
+   return nRetval;
+}
+
 /*
  * See also kernel/Documentation/PCI/pci.txt for the recommended PCI initialization sequence
  */
@@ -842,49 +903,12 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
         } break;
         }
 
-        /* Turn on Memory-Write-Invalidate if it is supported by the device*/
-        #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24))
-            pci_set_mwi(pDevDesc->pPcidev);
-        #else
-            pci_try_set_mwi(pDevDesc->pPcidev);
-        #endif
-
-        #if (defined CONFIG_OF)
-            OF_DMA_CONFIGURE(&pDevDesc->pPcidev->dev,pDevDesc->pPcidev->dev.of_node);
-        #endif
-
-        /* Set DMA mask. We can handle only 32 bit DMA addresses! */
-        nRc = pci_set_dma_mask(pDevDesc->pPcidev, DMA_BIT_MASK(32));
-        if (nRc < 0)
+        nRc = DefaultPciSettings(pDevDesc->pPcidev);
+        if (nRc)
         {
-            ERR("pci_conf: pci_set_dma_mask failed\n");
             pci_release_regions(pDevDesc->pPcidev);
             pDevDesc->pPcidev = NULL;
             goto Exit;
-        }
-        nRc = pci_set_consistent_dma_mask(pDevDesc->pPcidev, DMA_BIT_MASK(32));
-        if (nRc < 0)
-        {
-            ERR("pci_conf: pci_set_consistent_dma_mask failed\n");
-            pci_release_regions(pDevDesc->pPcidev);
-            pDevDesc->pPcidev = NULL;
-            goto Exit;
-        }
-
-        /* Enable bus master DMA */
-        pci_set_master(pDevDesc->pPcidev);
-
-        /* Try to enable MSI (Message Signaled Interrupts). MSI's are non shared, so we can
-        * use interrupt mode, also if we have a non exclusive interrupt line with legacy
-        * interrupts.
-        */
-        if (pci_enable_msi(pDevDesc->pPcidev))
-        {
-            INF("pci_conf: legacy INT configured for device %s\n", pci_name(pDevDesc->pPcidev));
-        }
-        else
-        {
-            INF("pci_conf: MSI configured for device %s\n", pci_name(pDevDesc->pPcidev));
         }
 
         /* assigned IRQ */
@@ -1122,7 +1146,7 @@ static unsigned int atemsysDtDriver_of_map_irq_to_virq(ATEMSYS_T_DEVICE_DESC* pD
     /* get node from atemsys platform driver list */
     for (i = 0; i < ATEMSYS_MAX_NUMBER_DRV_INSTANCES; i++)
     {
-    
+
         pDrvDescPrivate = S_apDrvDescPrivate[i];
         if (NULL == pDrvDescPrivate)
         {
@@ -1140,7 +1164,7 @@ static unsigned int atemsysDtDriver_of_map_irq_to_virq(ATEMSYS_T_DEVICE_DESC* pD
         INF("atemsysDtDriver_of_map_irq_to_virq: Cannot find connected device tree node\n");
         return NO_IRQ;
     }
-   
+
     /* get interrupt from node */
     irq = irq_of_parse_and_map(device, nIdx);
     if (NO_IRQ == irq)
@@ -1152,7 +1176,7 @@ static unsigned int atemsysDtDriver_of_map_irq_to_virq(ATEMSYS_T_DEVICE_DESC* pD
 
     return irq;
 }
-#endif /* INCLUDE_ATEMSYS_DT_DRIVER) */ 
+#endif /* INCLUDE_ATEMSYS_DT_DRIVER) */
 #endif /* CONFIG_DTC */
 
 #if (defined INCLUDE_IRQ_TO_DESC)
@@ -1230,7 +1254,7 @@ static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioct
                 goto Exit;
             }
         }
-        
+
 #else
         /* Use IRQ number passed as ioctl argument */
         irq = ioctlParam;
@@ -1874,9 +1898,10 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
 #endif
       }
 
-      if (dmaAddr > 0xFFFFFFFF)
+      if ((dmaAddr > 0xFFFFFFFF) && !pDevDesc->bSupport64BitDma)
       {
          ERR("mmap: Can't handle 64-Bit DMA address\n");
+         INF("mmap: Update LinkLayer for 64-Bit DMA support!\n");
          nRet = -ENOMEM;
          goto ExitAndFree;
       }
@@ -1895,15 +1920,28 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
 
 #if (defined __arm__) || (defined __aarch64__)
          dwDmaPfn = (dmaAddr >> PAGE_SHIFT);
-#if (defined CONFIG_PCI)
+ #if (defined CONFIG_PCI)
+  #if (LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0))
          if ((NULL != pDevDesc->pPcidev) && (0 != pDevDesc->pPcidev->dev.dma_pfn_offset))
          {
             dwDmaPfn = dwDmaPfn + pDevDesc->pPcidev->dev.dma_pfn_offset;
             INF("mmap: remap_pfn_range dma pfn 0x%x, offset pfn 0x%x\n",
                         dwDmaPfn, (u32)pDevDesc->pPcidev->dev.dma_pfn_offset);
          }
+  #else
+         if ((NULL != pDevDesc->pPcidev) && (NULL != pDevDesc->pPcidev->dev.dma_range_map))
+         {
+            const struct bus_dma_region *map = pDevDesc->pPcidev->dev.dma_range_map;
+            unsigned long dma_pfn_offset = ((map->offset) >> PAGE_SHIFT);
+            dwDmaPfn = dwDmaPfn + dma_pfn_offset;
+            INF("mmap: remap_pfn_range dma pfn 0x%x, offset pfn 0x%x\n",
+                        dwDmaPfn, (u32)dma_pfn_offset);
+         }
+  #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0))*/
+  #if (defined __arm__)
          else
-#endif
+  #endif
+ #endif /* (defined CONFIG_PCI) */
          {
             vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
          }
@@ -1925,7 +1963,16 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
       }
 
       /* Write the physical DMA address into the first 4 bytes of allocated memory */
-      *((u32 *) pVa) = (u32) dmaAddr;
+      /* If there is 64 bit DMA support write upper part into the the next 4 byte  */
+      if (pDevDesc->bSupport64BitDma)
+      {
+         ((u32 *) pVa)[0] = (u32)((u64)dmaAddr & 0xFFFFFFFF);
+         ((u32 *) pVa)[1] = (u32)(((u64)dmaAddr >> 32) & 0xFFFFFFFF);
+      }
+      else
+      {
+         *((u32 *) pVa) = (u32) dmaAddr;
+      }
 
       /* Some housekeeping to be able to cleanup the allocated memory later */
       pMmapNode = kzalloc(sizeof(ATEMSYS_T_MMAP_DESC), GFP_KERNEL);
@@ -2139,6 +2186,29 @@ static long atemsys_ioctl(
          if (0 != nRetval)
          {
             ERR("ioctl ATEMSYS_IOCTL_MOD_GETVERSION failed: %d\n", nRetval);
+            goto Exit;
+         }
+      } break;
+
+      case ATEMSYS_IOCTL_MOD_SET_API_VERSION:
+      {
+         __u32 dwApiVersion = 0;
+
+#if (defined CONFIG_XENO_COBALT)
+         nRetval = rtdm_safe_copy_from_user(fd, &dwApiVersion, user_arg, sizeof(__u32));
+#else
+         nRetval = get_user(dwApiVersion, (__u32*)arg);
+#endif
+
+         /* activate supported features */
+         if (dwApiVersion >= EC_MAKEVERSION(1,4,14,0))
+         {
+            pDevDesc->bSupport64BitDma = true;
+         }
+
+         if (0 != nRetval)
+         {
+            ERR("ioctl ATEMSYS_IOCTL_MOD_SETVERSION failed: %d\n", nRetval);
             goto Exit;
          }
       } break;
@@ -3446,12 +3516,14 @@ static int PciDriverProbe(struct pci_dev *pPciDev, const struct pci_device_id *i
         ERR("%s: PciDriverProbe: pci_enable_device_mem failed!\n", pci_name(pPciDev));
         goto Exit;
     }
-    nRes = dma_set_mask_and_coherent(&pPciDev->dev, DMA_BIT_MASK(32));
+
+    nRes = DefaultPciSettings(pPciDev);
     if (nRes)
     {
-        ERR("%s: PciDriverProbe: dma_set_mask_and_coherent failed\n", pci_name(pPciDev));
+        ERR("%s: PciDriverProbe: DefaultPciSettings failed\n", pci_name(pPciDev));
         goto Exit;
     }
+    pci_save_state(pPciDev);
     pci_enable_pcie_error_reporting(pPciDev);
     nRes = pci_request_regions(pPciDev, ATEMSYS_DEVICE_NAME);
     if (nRes < 0)
@@ -3460,9 +3532,6 @@ static int PciDriverProbe(struct pci_dev *pPciDev, const struct pci_device_id *i
         nRes = -EBUSY;
         goto Exit;
     }
-    pci_set_master(pPciDev);
-    pci_save_state(pPciDev);
-    pci_enable_msi(pPciDev);
 
     /* create private desc */
     pPciDrvDescPrivate = (ATEMSYS_T_PCI_DRV_DESC_PRIVATE*)kzalloc(sizeof(ATEMSYS_T_PCI_DRV_DESC_PRIVATE), GFP_KERNEL);
