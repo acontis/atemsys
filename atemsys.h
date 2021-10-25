@@ -87,6 +87,7 @@
  *  V1.4.14 - Fix for arm/aarch64 kernel >= 5.10.00,
  *            Add support for 64Bit DMA Memory
  *            Add support for PCI DMA address translation
+ *  V1.4.15 - Fix API version IO Controls
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -96,26 +97,26 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
-#ifndef EC_MAKEVERSION
-#define EC_MAKEVERSION(a,b,c,d) (((a)<<24)+((b)<<16)+((c)<<8))
+#ifndef EC_ATEMSYSVERSION
+#define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.14"
-#define ATEMSYS_VERSION_NUM  1,4,14
+#define ATEMSYS_VERSION_STR "1.4.15"
+#define ATEMSYS_VERSION_NUM  1,4,15
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_MAKEVERSION(1,4,14,0)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,15)
 #endif
 
 /* support selection */
 
-#if   (USE_ATEMSYS_API_VERSION < EC_MAKEVERSION(1,3,5,0)) || (!defined USE_ATEMSYS_API_VERSION)
+#if   (USE_ATEMSYS_API_VERSION < EC_ATEMSYSVERSION(1,3,5)) || (!defined USE_ATEMSYS_API_VERSION)
 /* till v1.3.04 */
 #define ATEMSYS_T_PCI_SELECT_DESC               ATEMSYS_T_PCI_SELECT_DESC_v1_0_00
 #define ATEMSYS_T_PCI_MEMBAR                    ATEMSYS_T_PCI_MEMBAR_v1_0_00
 #define ATEMSYS_IOCTL_PCI_FIND_DEVICE           ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_0_00
 #define ATEMSYS_IOCTL_PCI_CONF_DEVICE           ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_0_00
 
-#elif (USE_ATEMSYS_API_VERSION < EC_MAKEVERSION(1,4,12,0))
+#elif (USE_ATEMSYS_API_VERSION < EC_ATEMSYSVERSION(1,4,12))
 /* v1.3.05 till v1.4.11 */
 #define ATEMSYS_T_PCI_SELECT_DESC               ATEMSYS_T_PCI_SELECT_DESC_v1_3_05
 #define ATEMSYS_T_PCI_MEMBAR                    ATEMSYS_T_PCI_MEMBAR_v1_3_05

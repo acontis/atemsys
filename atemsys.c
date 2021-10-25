@@ -715,7 +715,7 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
     unsigned long ioBase;
     u32 dwIOLen;
     s32 nBar = 0;
-    u32 dwAtemsysApiVersion = 0x010000;
+    u32 dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,0,0);
     ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*  pPciDesc_v1_4_12 = NULL;
     ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*  pPciDesc_v1_3_05 = NULL;
     ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*  pPciDesc_v1_0_00= NULL;
@@ -724,7 +724,7 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
     {
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00):
     {
-        dwAtemsysApiVersion = 0x010000;
+        dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,0,0);
         pPciDesc_v1_0_00 = (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam;
         if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_0_00, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00)))
         {
@@ -733,7 +733,7 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
     } break;
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05):
     {
-        dwAtemsysApiVersion = 0x010305;
+        dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,3,5);
         pPciDesc_v1_3_05 = (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam;
         if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_3_05, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05)))
         {
@@ -742,7 +742,7 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
     } break;
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12):
     {
-        dwAtemsysApiVersion = 0x01040c;
+        dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,4,12);
         pPciDesc_v1_4_12 = (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam;
         if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_4_12, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12)))
         {
@@ -776,7 +776,7 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
     {
         for (i = 0; i < pDevDesc->pPciDrvDesc->nBarCnt ; i++)
         {
-            if ((0x01040c != dwAtemsysApiVersion) && (pDevDesc->pPciDrvDesc->aBars[i].qwIOMem > 0xFFFFFFFF))
+            if ((EC_ATEMSYSVERSION(1,4,12) != dwAtemsysApiVersion) && (pDevDesc->pPciDrvDesc->aBars[i].qwIOMem > 0xFFFFFFFF))
             {
                 ERR("pci_conf: 64-Bit IO address not supported\n");
                 nRetval = -ENODEV;
@@ -785,17 +785,17 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
 
             switch (dwAtemsysApiVersion)
             {
-            case 0x010000:
+            case EC_ATEMSYSVERSION(1,0,0):
             {
                 put_user((u32)pDevDesc->pPciDrvDesc->aBars[i].qwIOMem, &(pPciDesc_v1_0_00->aBar[i].dwIOMem));
                 put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOLen,      &(pPciDesc_v1_0_00->aBar[i].dwIOLen));
             } break;
-            case 0x010305:
+            case EC_ATEMSYSVERSION(1,3,5):
             {
                 put_user((u32)pDevDesc->pPciDrvDesc->aBars[i].qwIOMem, &(pPciDesc_v1_3_05->aBar[i].dwIOMem));
                 put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOLen,      &(pPciDesc_v1_3_05->aBar[i].dwIOLen));
             } break;
-            case 0x01040c:
+            case EC_ATEMSYSVERSION(1,4,12):
             {
                 put_user(pDevDesc->pPciDrvDesc->aBars[i].qwIOMem,      &(pPciDesc_v1_4_12->aBar[i].qwIOMem));
                 put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOLen,      &(pPciDesc_v1_4_12->aBar[i].dwIOLen));
@@ -804,17 +804,17 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
         }
         switch (dwAtemsysApiVersion)
         {
-        case 0x010000:
+        case EC_ATEMSYSVERSION(1,0,0):
         {
             put_user(pDevDesc->pPciDrvDesc->nBarCnt, &(pPciDesc_v1_0_00->nBarCnt));
             put_user((u32)pDevDesc->pPcidev->irq,    &(pPciDesc_v1_0_00->dwIrq));
         } break;
-        case 0x010305:
+        case EC_ATEMSYSVERSION(1,3,5):
         {
             put_user(pDevDesc->pPciDrvDesc->nBarCnt, &(pPciDesc_v1_3_05->nBarCnt));
             put_user((u32)pDevDesc->pPcidev->irq,    &(pPciDesc_v1_3_05->dwIrq));
         } break;
-        case 0x01040c:
+        case EC_ATEMSYSVERSION(1,4,12):
         {
             put_user(pDevDesc->pPciDrvDesc->nBarCnt, &(pPciDesc_v1_4_12->nBarCnt));
             put_user((u32)pDevDesc->pPcidev->irq,    &(pPciDesc_v1_4_12->dwIrq));
@@ -851,7 +851,7 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
                 /* IO area address */
                 ioBase = pci_resource_start(pDevDesc->pPcidev, i);
 
-                if ((0x01040c != dwAtemsysApiVersion) && (ioBase > 0xFFFFFFFF))
+                if ((EC_ATEMSYSVERSION(1,4,12) != dwAtemsysApiVersion) && (ioBase > 0xFFFFFFFF))
                 {
                     ERR("pci_conf: 64-Bit IO address not supported\n");
                     pci_release_regions(pDevDesc->pPcidev);
@@ -865,17 +865,17 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
 
                 switch (dwAtemsysApiVersion)
                 {
-                case 0x010000:
+                case EC_ATEMSYSVERSION(1,0,0):
                 {
                     put_user((u32)ioBase, &(pPciDesc_v1_0_00->aBar[nBar].dwIOMem));
                     put_user(dwIOLen,     &(pPciDesc_v1_0_00->aBar[nBar].dwIOLen));
                 } break;
-                case 0x010305:
+                case EC_ATEMSYSVERSION(1,3,5):
                 {
                     put_user((u32)ioBase, &(pPciDesc_v1_3_05->aBar[nBar].dwIOMem));
                     put_user(dwIOLen,     &(pPciDesc_v1_3_05->aBar[nBar].dwIOLen));
                 } break;
-                case 0x01040c:
+                case EC_ATEMSYSVERSION(1,4,12):
                 {
                     put_user((u64)ioBase, &(pPciDesc_v1_4_12->aBar[nBar].qwIOMem));
                     put_user(dwIOLen,     &(pPciDesc_v1_4_12->aBar[nBar].dwIOLen));
@@ -889,15 +889,15 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
         /* number of memory BARs */
         switch (dwAtemsysApiVersion)
         {
-        case 0x010000:
+        case EC_ATEMSYSVERSION(1,0,0):
         {
             put_user(nBar, &(pPciDesc_v1_0_00->nBarCnt));
         } break;
-        case 0x010305:
+        case EC_ATEMSYSVERSION(1,3,5):
         {
             put_user(nBar, &(pPciDesc_v1_3_05->nBarCnt));
         } break;
-        case 0x01040c:
+        case EC_ATEMSYSVERSION(1,4,12):
         {
             put_user(nBar, &(pPciDesc_v1_4_12->nBarCnt));
         } break;
@@ -914,15 +914,15 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
         /* assigned IRQ */
         switch (dwAtemsysApiVersion)
         {
-        case 0x010000:
+        case EC_ATEMSYSVERSION(1,0,0):
         {
             put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc_v1_0_00->dwIrq));
         } break;
-        case 0x010305:
+        case EC_ATEMSYSVERSION(1,3,5):
         {
             put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc_v1_3_05->dwIrq));
         } break;
-        case 0x01040c:
+        case EC_ATEMSYSVERSION(1,4,12):
         {
             put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc_v1_4_12->dwIrq));
         } break;
@@ -949,7 +949,7 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
     int nRetval = -EIO;
     struct pci_dev* pPciDev = NULL;
     s32 nVendor, nDevice, nInstance, nInstanceId;
-    u32 dwAtemsysApiVersion = 0x010000;
+    u32 dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,0,0);
     ATEMSYS_T_PCI_SELECT_DESC_v1_0_00* pPciDesc_v1_0_00 = NULL;
     ATEMSYS_T_PCI_SELECT_DESC_v1_3_05* pPciDesc_v1_3_05 = NULL;
     ATEMSYS_T_PCI_SELECT_DESC_v1_4_12* pPciDesc_v1_4_12 = NULL;
@@ -958,7 +958,7 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
     {
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00):
     {
-        dwAtemsysApiVersion = 0x010000;
+        dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,0,0);
         pPciDesc_v1_0_00 = (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam;
         if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_0_00, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00)))
         {
@@ -967,7 +967,7 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
     } break;
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05):
     {
-        dwAtemsysApiVersion = 0x010305;
+        dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,3,5);
         pPciDesc_v1_3_05 = (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam;
         if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_3_05, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05)))
         {
@@ -976,7 +976,7 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
     } break;
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12):
     {
-        dwAtemsysApiVersion = 0x01040c;
+        dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,4,12);
         pPciDesc_v1_4_12 = (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam;
         if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_4_12, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12)))
         {
@@ -998,19 +998,19 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
 
     switch (dwAtemsysApiVersion)
     {
-    case 0x010000:
+    case EC_ATEMSYSVERSION(1,0,0):
     {
         get_user(nVendor,  &pPciDesc_v1_0_00->nVendID);
         get_user(nDevice,  &pPciDesc_v1_0_00->nDevID);
         get_user(nInstance,&pPciDesc_v1_0_00->nInstance);
     } break;
-    case 0x010305:
+    case EC_ATEMSYSVERSION(1,3,5):
     {
         get_user(nVendor,  &pPciDesc_v1_3_05->nVendID);
         get_user(nDevice,  &pPciDesc_v1_3_05->nDevID);
         get_user(nInstance,&pPciDesc_v1_3_05->nInstance);
     } break;
-    case 0x01040c:
+    case EC_ATEMSYSVERSION(1,4,12):
     {
         get_user(nVendor,  &pPciDesc_v1_4_12->nVendID);
         get_user(nDevice,  &pPciDesc_v1_4_12->nDevID);
@@ -1037,20 +1037,20 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
 
     switch (dwAtemsysApiVersion)
     {
-    case 0x010000:
+    case EC_ATEMSYSVERSION(1,0,0):
     {
         put_user((s32)pPciDev->bus->number,         &pPciDesc_v1_0_00->nPciBus);
         put_user((s32)PCI_SLOT(pPciDev->devfn),     &pPciDesc_v1_0_00->nPciDev);
         put_user((s32)PCI_FUNC(pPciDev->devfn),     &pPciDesc_v1_0_00->nPciFun);
     } break;
-    case 0x010305:
+    case EC_ATEMSYSVERSION(1,3,5):
     {
         put_user((s32)pci_domain_nr(pPciDev->bus),  &pPciDesc_v1_3_05->nPciDomain);
         put_user((s32)pPciDev->bus->number,         &pPciDesc_v1_3_05->nPciBus);
         put_user((s32)PCI_SLOT(pPciDev->devfn),     &pPciDesc_v1_3_05->nPciDev);
         put_user((s32)PCI_FUNC(pPciDev->devfn),     &pPciDesc_v1_3_05->nPciFun);
     } break;
-    case 0x01040c:
+    case EC_ATEMSYSVERSION(1,4,12):
     {
         put_user((s32)pci_domain_nr(pPciDev->bus),  &pPciDesc_v1_4_12->nPciDomain);
         put_user((s32)pPciDev->bus->number,         &pPciDesc_v1_4_12->nPciBus);
@@ -2174,8 +2174,7 @@ static long atemsys_ioctl(
 
       case ATEMSYS_IOCTL_MOD_GETVERSION:
       {
-         char aVersion[3] = {ATEMSYS_VERSION_NUM};
-         __u32 dwVersion = ((aVersion[0] << 2 * 8) | (aVersion[1] << 1 * 8) | (aVersion[2] << 0 * 8));
+         __u32 dwVersion = USE_ATEMSYS_API_VERSION;
 
 #if (defined CONFIG_XENO_COBALT)
          nRetval = rtdm_safe_copy_to_user(fd, user_arg, &dwVersion, sizeof(__u32));
@@ -2201,7 +2200,7 @@ static long atemsys_ioctl(
 #endif
 
          /* activate supported features */
-         if (dwApiVersion >= EC_MAKEVERSION(1,4,14,0))
+         if (EC_ATEMSYSVERSION(1,4,15) <= dwApiVersion)
          {
             pDevDesc->bSupport64BitDma = true;
          }
