@@ -98,6 +98,7 @@
 #include <linux/module.h>
 #include "atemsys.h"
 #include <linux/pci.h>
+#include <linux/platform_device.h>
 
 #if !(defined NO_IRQ) && (defined __aarch64__)
 #define NO_IRQ   ((unsigned int)(-1))
@@ -137,6 +138,12 @@
 #include <linux/dma-direct.h>
 #endif
 
+#if (defined CONFIG_DTC)
+#include <linux/of.h>
+#include <linux/of_irq.h>
+#endif /* CONFIG_DTC */
+#endif /* CONFIG_XENO_COBALT */
+
 #if ((defined CONFIG_OF) \
        && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,6,0) /* not tested */))
 #define INCLUDE_ATEMSYS_DT_DRIVER    1
@@ -148,6 +155,8 @@
 #include <linux/regulator/consumer.h>
 #include <linux/pm_runtime.h>
 #include <linux/of_mdio.h>
+#include <linux/of_device.h>
+#include <linux/of_irq.h>
 #include <linux/of_net.h>
 #include <linux/delay.h>
 #include <linux/kthread.h>
@@ -159,12 +168,6 @@
 #define INCLUDE_ATEMSYS_PCI_DRIVER    1
 #include <linux/aer.h>
 #endif
-
-#if (defined CONFIG_DTC)
-#include <linux/of.h>
-#include <linux/of_irq.h>
-#endif /* CONFIG_DTC */
-#endif /* CONFIG_XENO_COBALT */
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,1))
 #define INCLUDE_IRQ_TO_DESC
@@ -249,12 +252,12 @@ MODULE_PARM_DESC(loglevel, "Set log level default LOGLEVEL_INFO, see /include/li
 #define ACCESS_OK(type, addr, size)     access_ok(addr, size)
 #endif
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0))
-#define OF_DMA_CONFIGURE(dev, of_node) of_dma_configure(dev, of_node, true)
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,16,0))
-#define OF_DMA_CONFIGURE(dev, of_node) of_dma_configure(dev, of_node)
+#if ((defined CONFIG_OF) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)) && !(defined CONFIG_XENO_COBALT))
+  #define OF_DMA_CONFIGURE(dev, of_node) of_dma_configure(dev, of_node, true)
+#elif ((defined CONFIG_OF) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3,16,0)) && !(defined CONFIG_XENO_COBALT))
+  #define OF_DMA_CONFIGURE(dev, of_node) of_dma_configure(dev, of_node)
 #else
-#define OF_DMA_CONFIGURE(dev, of_node)
+ #define OF_DMA_CONFIGURE(dev, of_node)
 #endif
 
 typedef struct _ATEMSYS_T_IRQ_DESC
@@ -285,12 +288,10 @@ typedef struct _ATEMSYS_T_DEVICE_DESC
     struct _ATEMSYS_T_PCI_DRV_DESC_PRIVATE *pPciDrvDesc;
   #endif
 #endif
-#if (!defined CONFIG_XENO_COBALT)
     struct platform_device* pPlatformDev;
   #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
     struct _ATEMSYS_T_DRV_DESC_PRIVATE *pDrvDesc;
   #endif
-#endif
 
     ATEMSYS_T_IRQ_DESC  irqDesc;
 
@@ -414,13 +415,13 @@ static struct vm_operations_struct mmap_vmop =
    .close = dev_munmap,
 };
 
-#if (!defined CONFIG_XENO_COBALT)
 static DEFINE_MUTEX(S_mtx);
 static ATEMSYS_T_DEVICE_DESC S_DevNode;
 static struct class* S_pDevClass;
 static struct device* S_pDev;
 static struct platform_device* S_pPlatformDev = NULL;
 
+#if !(defined CONFIG_XENO_COBALT)
 static void dev_enable_irq(ATEMSYS_T_IRQ_DESC* pIrqDesc)
 {
     /* enable/disable level type interrupts, not edge type interrupts */
@@ -779,6 +780,7 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
             if ((EC_ATEMSYSVERSION(1,4,12) != dwAtemsysApiVersion) && (pDevDesc->pPciDrvDesc->aBars[i].qwIOMem > 0xFFFFFFFF))
             {
                 ERR("pci_conf: 64-Bit IO address not supported\n");
+                INF("pci_conf: Update LinkLayer for 64-Bit IO address support!\n");
                 nRetval = -ENODEV;
                 goto Exit;
             }
@@ -1510,15 +1512,15 @@ static int device_open(struct inode *inode, struct file *file)
 
    file->private_data = (void *) pDevDesc;
 
-   /* use module's platform device for memory maping and allocation */
-   pDevDesc->pPlatformDev = S_pPlatformDev;
-
    /* Add descriptor to descriptor list */
    mutex_lock(&S_mtx);
    list_add(&pDevDesc->list, &S_DevNode.list);
    mutex_unlock(&S_mtx);
    try_module_get(THIS_MODULE);
 #endif /* CONFIG_XENO_COBALT */
+
+   /* use module's platform device for memory maping and allocation */
+   pDevDesc->pPlatformDev = S_pPlatformDev;
 
    return DRIVER_SUCCESS;
 }
@@ -1938,13 +1940,10 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
                         dwDmaPfn, (u32)dma_pfn_offset);
          }
   #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0))*/
-  #if (defined __arm__)
-         else
-  #endif
  #endif /* (defined CONFIG_PCI) */
-         {
-            vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
-         }
+#if (!defined ATEMSYS_DONT_SET_NONCACHED_DMA_PAGEPROTECTIONLFAG)
+         vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+#endif
 #elif (defined __PPC__)
          dwDmaPfn = (dmaAddr >> PAGE_SHIFT);
 #else /* x86 / x86_64 */
@@ -3670,6 +3669,7 @@ int init_module(void)
                ATEMSYS_DEVICE_NAME, major);
         return major;
     }
+#endif /* CONFIG_XENO_COBALT */
 
     /* Register Pci and Platform Driver */
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
@@ -3739,7 +3739,6 @@ int init_module(void)
 
     INIT_LIST_HEAD(&S_DevNode.list);
 
-#endif /* CONFIG_XENO_COBALT */
     INF("%s v%s loaded\n", ATEMSYS_DEVICE_NAME, ATEMSYS_VERSION_STR);
     return 0;
 }
@@ -3773,11 +3772,12 @@ void cleanup_module(void)
    device_release_driver(S_pDev); //see device_del() -> bus_remove_device()
 #endif
 
+   device_destroy(S_pDevClass, MKDEV(MAJOR_NUM, 0));
+   class_destroy(S_pDevClass);
+
 #if (defined CONFIG_XENO_COBALT)
    rtdm_dev_unregister(&device);
 #else
-   device_destroy(S_pDevClass, MKDEV(MAJOR_NUM, 0));
-   class_destroy(S_pDevClass);
    unregister_chrdev(MAJOR_NUM, ATEMSYS_DEVICE_NAME);
 #endif /* CONFIG_XENO_COBALT */
 }

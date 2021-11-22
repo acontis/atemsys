@@ -88,6 +88,9 @@
  *            Add support for 64Bit DMA Memory
  *            Add support for PCI DMA address translation
  *  V1.4.15 - Fix API version IO Controls
+ *  V1.4.16 - Fix Xenomai3 on arm, 
+ *            Add support for Device Tree Ethernet driver and PCI driver with Xenomai3
+ *            Fix PCI DMA address translation on arm
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -101,10 +104,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.15"
-#define ATEMSYS_VERSION_NUM  1,4,15
+#define ATEMSYS_VERSION_STR "1.4.16"
+#define ATEMSYS_VERSION_NUM  1,4,16
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,15)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,16)
 #endif
 
 /* support selection */
