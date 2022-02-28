@@ -672,11 +672,19 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
 #endif
 
 #if ((LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)) || !(defined __aarch64__))
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,12,55))
+    nRes = dma_set_coherent_mask(&pPciDev->dev, DMA_BIT_MASK(32));
+#else
     nRes = dma_set_mask_and_coherent(&pPciDev->dev, DMA_BIT_MASK(32));
+#endif
     if (nRes)
 #endif
     {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(3,12,55))
+        nRes = dma_set_coherent_mask(&pPciDev->dev, DMA_BIT_MASK(64));
+#else
         nRes = dma_set_mask_and_coherent(&pPciDev->dev, DMA_BIT_MASK(64));
+#endif
         if (nRes)
         {
             ERR("%s: DefaultPciSettings: dma_set_mask_and_coherent failed\n", pci_name(pPciDev));

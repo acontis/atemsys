@@ -91,6 +91,7 @@
  *  V1.4.16 - Fix Xenomai3 on arm, 
  *            Add support for Device Tree Ethernet driver and PCI driver with Xenomai3
  *            Fix PCI DMA address translation on arm
+ *  V1.4.17 - Fix dma_set_mask_and_coherent() missing in kernels under 3.12.55
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -104,8 +105,8 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.16"
-#define ATEMSYS_VERSION_NUM  1,4,16
+#define ATEMSYS_VERSION_STR "1.4.17"
+#define ATEMSYS_VERSION_NUM  1,4,17
 #if (defined ATEMSYS_C)
 #define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,16)
 #endif
