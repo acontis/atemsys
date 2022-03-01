@@ -191,6 +191,14 @@ MODULE_DESCRIPTION("Generic usermode PCI driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(ATEMSYS_VERSION_STR);
 
+static char *AllowedPciDevices = "PCI_ANY_ID";
+module_param(AllowedPciDevices, charp, 0000);
+MODULE_PARM_DESC(AllowedPciDevices, "Bind only pci devices in semicolon separated list e.g. AllowedPciDevices=\"0000:01:00.0\", empty string will turn off atemsys_pci driver.");
+
+static int loglevel = LOGLEVEL_INFO;
+module_param(loglevel, int, 0);
+MODULE_PARM_DESC(loglevel, "Set log level default LOGLEVEL_INFO, see /include/linux/kern_levels.h");
+
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18))
 #error "At least kernel version 2.6.18 is needed to compile!"
 #endif
@@ -217,14 +225,11 @@ MODULE_VERSION(ATEMSYS_VERSION_STR);
 #define LOGLEVEL_DEBUG      7   /* debug-level messages */
 #endif
 
-static int loglevel = LOGLEVEL_INFO;
 #define ERR(str, ...) (LOGLEVEL_ERR <= loglevel)?     PRINTK(KERN_ERR, str, ##__VA_ARGS__)     :0
 #define WRN(str, ...) (LOGLEVEL_WARNING <= loglevel)? PRINTK(KERN_WARNING, str, ##__VA_ARGS__) :0
 #define INF(str, ...) (LOGLEVEL_INFO <= loglevel)?    PRINTK(KERN_INFO, str, ##__VA_ARGS__)    :0
 #define DBG(str, ...) (LOGLEVEL_DEBUG <= loglevel)?   PRINTK(KERN_INFO, str, ##__VA_ARGS__)   :0
 
-module_param(loglevel, int, 0);
-MODULE_PARM_DESC(loglevel, "Set log level default LOGLEVEL_INFO, see /include/linux/kern_levels.h");
 
 #ifndef PAGE_UP
 #define PAGE_UP(addr)   (((addr)+((PAGE_SIZE)-1))&(~((PAGE_SIZE)-1)))
@@ -2037,47 +2042,6 @@ Exit:
    return nRet;
 }
 
-#if (defined(__GNUC__) && (defined(__ARM__) || defined(__arm__) || defined(__aarch64__)))
-static void ioctl_enableCycleCount(void* arg)
-{
-   __u32 dwEnableUserMode = *(__u32*)arg;
-   /* Make CCNT accessible from usermode */
-#if !defined(__aarch64__)
-   __asm__ __volatile__("mcr p15, 0, %0, c9, c14, 0" :: "r"(dwEnableUserMode));
-#else
-   /* aarch32: PMUSERENR => aarch64: PMUSERENR_EL0 */
-   __asm__ __volatile__("msr PMUSERENR_EL0, %0" :: "r"(dwEnableUserMode));
-#endif
-
-   if (dwEnableUserMode)
-   {
-#if !defined(__aarch64__)
-      /* Disable counter flow interrupt */
-      __asm__ volatile ("mcr p15, 0, %0, c9, c14, 2" :: "r"(0x8000000f));
-      /* Initialize CCNT */
-      __asm__ volatile ("mcr p15, 0, %0, c9, c12, 0" :: "r"(5));
-      /* Start CCNT */
-      __asm__ volatile ("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x80000000));
-#else
-      /* Disable counter flow interrupt */  /* aarch32:PMINTENCLR => aarch64:PMINTENCLR_EL1 */
-      __asm__ volatile ("msr PMINTENCLR_EL1, %0" :: "r"(0x8000000f));
-      /* Initialize CCNT */  /* aarch32:PMCR       => aarch64:PMCR_EL0*/
-      __asm__ volatile ("msr PMCR_EL0, %0" :: "r"(5));
-      /* Start CCNT */  /*  aarch32:PMCNTENSET => aarch64:PMCNTENSET_EL0 */
-      __asm__ volatile ("msr PMCNTENSET_EL0, %0" :: "r"(0x80000000));
-#endif
-   }
-   else
-   {
-#if !defined(__aarch64__)
-      __asm__ volatile ("mcr p15, 0, %0, c9, c12, 0" :: "r"(0));
-#else
-      /* aarch32:PMCR       => aarch64:PMCR_EL0 */
-      __asm__ volatile ("msr PMCR_EL0, %0" :: "r"(0));
-#endif
-   }
-}
-#endif
 
 /*
  * This function is called whenever a process tries to do an ioctl on our
@@ -2217,29 +2181,6 @@ static long atemsys_ioctl(
             ERR("ioctl ATEMSYS_IOCTL_MOD_SETVERSION failed: %d\n", nRetval);
             goto Exit;
          }
-      } break;
-
-      case ATEMSYS_IOCTL_CPU_ENABLE_CYCLE_COUNT:
-      {
-#if (defined(__GNUC__) && (defined(__ARM__) || defined(__arm__) || defined(__aarch64__)))
-         __u32 dwEnableUserMode = 0;
-
-#if (defined CONFIG_XENO_COBALT)
-         nRetval = rtdm_safe_copy_from_user(fd, &dwEnableUserMode, user_arg, sizeof(__u32));
-#else
-         nRetval = get_user(dwEnableUserMode, (__u32*)arg);
-#endif
-         if (0 != nRetval)
-         {
-            ERR("ioctl ATEMSYS_IOCTL_CPU_ENABLE_CYCLE_COUNT failed: %d\n", nRetval);
-            goto Exit;
-         }
-
-         on_each_cpu(ioctl_enableCycleCount, &dwEnableUserMode, 1);
-#else
-         nRetval = -ENODEV;
-         goto Exit;
-#endif
       } break;
 
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
@@ -3503,16 +3444,16 @@ static void PciDriverRemove(struct pci_dev *pPciDev)
 static int PciDriverProbe(struct pci_dev *pPciDev, const struct pci_device_id *id)
 {
     ATEMSYS_T_PCI_DRV_DESC_PRIVATE *pPciDrvDescPrivate = NULL;
-    int nRes = -1;
+    int nRes = -ENODEV;
     int dwIndex = 0;
 
-    /* check if Ethernet device */
-    if ((PCI_BASE_CLASS_NETWORK != ((pPciDev->class >> 16) & 0xFF)) &&
-        (PCI_VENDOR_ID_BECKHOFF != pPciDev->vendor))
+    /* check if is wanted pci device */
+    if ((strcmp(AllowedPciDevices, "PCI_ANY_ID") != 0) && (strstr(AllowedPciDevices, pci_name(pPciDev)) == NULL))
     {
-        ERR("%s: PciDriverProbe: No Ethenet device!\n", pci_name(pPciDev));
         /* don't attach driver */
-        return -1;
+        DBG("%s: PciDriverProbe: restricted by user parameters!\n", pci_name(pPciDev));
+
+        return -ENODEV; /* error code doesn't create error message */
     }
 
     /* setup pci device */
@@ -3631,15 +3572,26 @@ typedef struct _ATEMSYS_PCI_INFO {
 static const struct _ATEMSYS_PCI_INFO oAtemsysPciInfo = {
 };
 
-#define ATEMSYS_DEVICE(vendor_id, dev_id, info) {  \
-            PCI_VDEVICE(vendor_id, dev_id),        \
-            .driver_data = (kernel_ulong_t)&info   \
-            }
 
 static const struct pci_device_id pci_devtype[] = {
-    ATEMSYS_DEVICE(INTEL,    PCI_ANY_ID, oAtemsysPciInfo), /* all intel    */
-    ATEMSYS_DEVICE(REALTEK,  PCI_ANY_ID, oAtemsysPciInfo), /* all realtek  */
-    ATEMSYS_DEVICE(BECKHOFF, PCI_ANY_ID, oAtemsysPciInfo), /* all beckhoff */
+    {
+    /* all devices of class PCI_CLASS_NETWORK_ETHERNET */
+    .vendor      = PCI_ANY_ID,
+    .device      = PCI_ANY_ID,
+    .subvendor   = PCI_ANY_ID,
+    .subdevice   = PCI_ANY_ID,
+    .class       = (PCI_CLASS_NETWORK_ETHERNET << 8),
+    .class_mask  = (0xFFFF00),
+    .driver_data = (kernel_ulong_t)&oAtemsysPciInfo
+    },
+    {
+     /* all devices with BECKHOFF vendor id */
+    .vendor      = PCI_VENDOR_ID_BECKHOFF,
+    .device      = PCI_ANY_ID,
+    .subvendor   = PCI_ANY_ID,
+    .subdevice   = PCI_ANY_ID,
+    .driver_data = (kernel_ulong_t)&oAtemsysPciInfo
+    },
     {}
 };
 
@@ -3687,9 +3639,17 @@ int init_module(void)
 
 #if (defined INCLUDE_ATEMSYS_PCI_DRIVER)
     memset(S_apPciDrvDescPrivate ,0, ATEMSYS_MAX_NUMBER_DRV_INSTANCES * sizeof(ATEMSYS_T_PCI_DRV_DESC_PRIVATE*));
-    if (0 != pci_register_driver(&oPciDriver))
+
+    if (0 == strcmp(AllowedPciDevices, ""))
     {
-        INF("Register Atemsys PCI driver failed!\n");
+        DBG("Atemsys PCI driver not registered\n");
+    }
+    else
+    {
+        if (0 != pci_register_driver(&oPciDriver))
+        {
+            INF("Register Atemsys PCI driver failed!\n");
+        }
     }
 #endif
 
@@ -3764,7 +3724,10 @@ void cleanup_module(void)
 #endif
 
 #if (defined INCLUDE_ATEMSYS_PCI_DRIVER)
-    pci_unregister_driver(&oPciDriver);
+    if (0 != strcmp(AllowedPciDevices, ""))
+    {
+        pci_unregister_driver(&oPciDriver);
+    }
 #endif
 
 #if (defined __arm__) || (defined __aarch64__)
