@@ -96,6 +96,7 @@
  *            Fix PCI driver do registration for all Ethernet network adapters
  *            Add modul parameter AllowedPciDevices to adjust PCI driver, AllowedPciDevices="" will turn off PCI driver, 
  *            (insmod atemsys AllowedPciDevices="0000:01:00.0;0000:02:00.0")
+ *  V1.4.19 - Fix Xenomai2 ARMv8 32Bit
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -109,10 +110,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.18"
-#define ATEMSYS_VERSION_NUM  1,4,18
+#define ATEMSYS_VERSION_STR "1.4.19"
+#define ATEMSYS_VERSION_NUM  1,4,19
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,16)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,19)
 #endif
 
 /* support selection */

@@ -667,13 +667,25 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
     pci_try_set_mwi(pPciDev);
 #endif
 
-#if ((defined __aarch64__) && (defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_DEVICE) || \
-        defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU) || defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU_ALL)))
+    /* remove wrong dma_coherent bit on ARM systems */
+#if ((defined __aarch64__) || (defined __arm__))
+ #if (LINUX_VERSION_CODE < KERNEL_VERSION(4,12,0))
+  #if (defined CONFIG_PHYS_ADDR_T_64BIT)
+    if (is_device_dma_coherent(&pPciDev->dev))
+    {
+        pPciDev->dev.archdata.dma_coherent = false;
+        INF("%s: DefaultPciSettings: Clear device.archdata dma_coherent bit!\n", pci_name(pPciDev));
+    }
+  #endif
+ #else
+  #if ((defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_DEVICE) || defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU) || defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU_ALL)))
     if (0 != pPciDev->dev.dma_coherent)
     {
         pPciDev->dev.dma_coherent = 0;
         INF("%s: DefaultPciSettings: Clear device dma_coherent bit!\n", pci_name(pPciDev));
     }
+  #endif
+ #endif
 #endif
 
 #if ((LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)) || !(defined __aarch64__))
@@ -2004,7 +2016,7 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
       vma->vm_ops = &mmap_vmop;
       vma->vm_private_data = pMmapNode;
 
-      INF("mmap: mapped DMA memory, Phys:0x%px KVirt:0x%px UVirt:0x%px Size:0x%x\n",
+      INF("mmap: mapped DMA memory, Phys:0x%px KVirt:0x%px UVirt:0x%px Size:%u\n",
              (void *)(unsigned long)dmaAddr, (void *)pVa, (void *)vma->vm_start, dwLen);
    }
 
