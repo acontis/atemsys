@@ -1876,10 +1876,11 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
 #if (defined CONFIG_PCI)
       if (pDevDesc->pPcidev != NULL)
       {
-#if ((defined __aarch64__) \
-    || (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
+#if ( (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
+    || (defined __aarch64__) \
     || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) \
-    || ((defined __amd64__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) )
+    || ((defined __i386__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))) \
+    || ((defined __amd64__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))) )
          pVa = dma_alloc_coherent(&pDevDesc->pPcidev->dev, dwLen, &dmaAddr, GFP_KERNEL);
          if (NULL == pVa)
          {
@@ -2031,10 +2032,11 @@ ExitAndFree:
 #if (defined CONFIG_PCI)
    if (pDevDesc->pPcidev != NULL)
    {
-#if ((defined __aarch64__) \
-    || (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
+#if ( (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
+    || (defined __aarch64__) \
     || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) \
-    || ((defined __amd64__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) )
+    || ((defined __i386__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))) \
+    || ((defined __amd64__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))) )
       dma_free_coherent(&pDevDesc->pPcidev->dev, dwLen, pVa, dmaAddr);
 #else
       pci_free_consistent(pDevDesc->pPcidev, dwLen, pVa, dmaAddr);
