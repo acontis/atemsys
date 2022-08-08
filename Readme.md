@@ -113,6 +113,11 @@ On the running system the compiled device tree file can be generally found next 
   - `atemsys-Instance` with the instance number that is to be used by EC-Master.
   - See also `EC_LINK_PARMS_IDENT_*` in `EcLink.h`
 - Remove all interrupt properties, like `interrupt-parent` and `interrupts`, in the `ethernet-phy` sub-node. 
+- To support PHY reset via a GPIO pin add (with your values)
+  - atemsys-phy-reset-gpios = <0x4a 0x05 0x01>;
+  - atemsys-phy-reset-duration = <0x0a>;
+  - [atemsys-phy-reset-post-delay = <0x64>;]
+  - [atemsys-phy-reset-active-high = <0x1>;]]
 
 ### Example
 :information_source: More example device trees for different platforms can be found in the [Wiki](https://github.com/acontis/atemsys/wiki).
