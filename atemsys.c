@@ -162,6 +162,7 @@
 #include <linux/kthread.h>
 #include <linux/wait.h>
 #include <asm/param.h>
+#include <linux/of_gpio.h>
 #endif
 #if ((defined CONFIG_PCI) \
        && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0) /* not tested */))
@@ -169,8 +170,14 @@
 #include <linux/aer.h>
 #endif
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,1))
-#define INCLUDE_IRQ_TO_DESC
+#ifndef HAVE_IRQ_TO_DESC
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,1))
+  #define INCLUDE_IRQ_TO_DESC
+ #endif
+#else
+ #if HAVE_IRQ_TO_DESC
+  #define INCLUDE_IRQ_TO_DESC
+ #endif
 #endif
 
 /* legacy support */
@@ -228,7 +235,7 @@ MODULE_PARM_DESC(loglevel, "Set log level default LOGLEVEL_INFO, see /include/li
 #define ERR(str, ...) (LOGLEVEL_ERR <= loglevel)?     PRINTK(KERN_ERR, str, ##__VA_ARGS__)     :0
 #define WRN(str, ...) (LOGLEVEL_WARNING <= loglevel)? PRINTK(KERN_WARNING, str, ##__VA_ARGS__) :0
 #define INF(str, ...) (LOGLEVEL_INFO <= loglevel)?    PRINTK(KERN_INFO, str, ##__VA_ARGS__)    :0
-#define DBG(str, ...) (LOGLEVEL_DEBUG <= loglevel)?   PRINTK(KERN_INFO, str, ##__VA_ARGS__)   :0
+#define DBG(str, ...) (LOGLEVEL_DEBUG <= loglevel)?   PRINTK(KERN_INFO, str, ##__VA_ARGS__)    :0
 
 
 #ifndef PAGE_UP
@@ -374,10 +381,17 @@ typedef struct _ATEMSYS_T_DRV_DESC_PRIVATE
     ATEMSYS_T_PHY_INFO          PhyInfo;
     phy_interface_t             PhyInterface;
     struct device_node*         pPhyNode;
+    struct device_node*         pMdioNode;
     struct phy_device*          pPhyDev;
     struct regulator*           pPhyRegulator;
     struct task_struct*         etx_thread_StartPhy;
     struct task_struct*         etx_thread_StopPhy;
+
+    /* PHY reset*/
+    int                         nPhyResetGpioPin;
+    bool                        bPhyResetGpioActiveHigh;
+    int                         nPhyResetDuration;
+    int                         nPhyResetPostDelay;
 
     /* mdio */
     ATEMSYS_T_MDIO_ORDER        MdioOrder;
@@ -402,8 +416,60 @@ static int PhyStartStopIoctl( unsigned long ioctlParam);
 static int GetMdioOrderIoctl(unsigned long ioctlParam);
 static int ReturnMdioOrderIoctl(unsigned long ioctlParam);
 static int GetPhyInfoIoctl(unsigned long ioctlParam);
+static int PhyResetIoctl(unsigned long ioctlParam);
+static int ResetPhyViaGpio(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate);
 static int EthernetDriverRemove(struct platform_device *pPDev);
 static int EthernetDriverProbe(struct platform_device *pPDev);
+
+#if (defined CONFIG_XENO_COBALT)
+static int StartPhy(struct platform_device *pPDev);
+static int StopPhy(struct platform_device *pPDev);
+typedef struct _ATEMSYS_T_WORKER_THREAD_DESC
+{
+    struct task_struct*     etx_thread;
+    int (* pfNextTask)(void *);
+    void*                   pNextTaskData;
+    struct mutex            WorkerTask_mutex;
+    bool                    bWorkerTaskShutdown;
+    bool                    bWorkerTaskRunning;
+} ATEMSYS_T_WORKER_THREAD_DESC;
+static ATEMSYS_T_WORKER_THREAD_DESC S_oAtemsysWorkerThreadDesc;
+
+static int AtemsysWorkerThread(void *data)
+{
+    void* pWorkerTaskData = NULL;
+    int (* pfWorkerTask)(void *);
+    pfWorkerTask = NULL;
+
+    S_oAtemsysWorkerThreadDesc.bWorkerTaskRunning = true;
+
+    for (;;)
+    {
+        mutex_lock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+        if (S_oAtemsysWorkerThreadDesc.bWorkerTaskShutdown)
+        {
+            mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+            break;
+        }
+        pfWorkerTask = S_oAtemsysWorkerThreadDesc.pfNextTask;
+        pWorkerTaskData = S_oAtemsysWorkerThreadDesc.pNextTaskData;
+        S_oAtemsysWorkerThreadDesc.pfNextTask = NULL;
+        S_oAtemsysWorkerThreadDesc.pNextTaskData = NULL;
+        mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+
+        if ((NULL != pfWorkerTask) && (NULL != pWorkerTaskData))
+        {
+            pfWorkerTask(pWorkerTaskData);
+        }
+        msleep(100);
+    }
+
+    S_oAtemsysWorkerThreadDesc.bWorkerTaskRunning = false;
+
+    return 0;
+}
+#endif /* #if (defined CONFIG_XENO_COBALT) */
+
 #endif /* INCLUDE_ATEMSYS_DT_DRIVER */
 
 
@@ -1446,9 +1512,12 @@ static void dev_pci_release(ATEMSYS_T_DEVICE_DESC* pDevDesc)
     {
         INF("pci_release: Disconnect from PCI device driver %s \n", pci_name(pDevDesc->pPcidev));
         pDevDesc->pPciDrvDesc->pDevDesc = NULL;
+#if !(defined CONFIG_XENO_COBALT)
         pDevDesc->pPcidev               = NULL;
+#endif
         pDevDesc->pPciDrvDesc           = NULL;
     }
+    else
 #endif
 
    if (pDevDesc->pPcidev)
@@ -1465,7 +1534,9 @@ static void dev_pci_release(ATEMSYS_T_DEVICE_DESC* pDevDesc)
 
       INF("pci_release: PCI device %s released\n", pci_name(pDevDesc->pPcidev));
 
+#if !(defined CONFIG_XENO_COBALT)
       pDevDesc->pPcidev = NULL;
+#endif
    }
 }
 #endif /* CONFIG_PCI */
@@ -2243,6 +2314,15 @@ static long atemsys_ioctl(
             goto Exit;
         }
       } break;
+    case ATEMSYS_IOCTL_PHY_RESET:
+    {
+        nRetval = PhyResetIoctl(arg);
+        if (0 != nRetval)
+        {
+            ERR("ioctl ATEMSYS_IOCTL_PHY_RESET failed: %d\n", nRetval);
+            goto Exit;
+        }
+    } break;
 #endif /* INCLUDE_ATEMSYS_DT_DRIVER */
 
       default:
@@ -2379,6 +2459,9 @@ static int GetMacInfoIoctl(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlP
         nRes |= put_user(pDrvDescPrivate->MacInfo.dwPhyAddr, &pInfoUserSpace->dwPhyAddr);
         if (0 != nRes) { nRetVal = nRes; goto Exit; }
 
+        nRes |= put_user(pDrvDescPrivate->MacInfo.bPhyResetSupported, &pInfoUserSpace->bPhyResetSupported);
+        if (0 != nRes) { nRetVal = nRes; goto Exit; }
+
         /* save descriptor of callee for cleanup on device_release */
         pDrvDescPrivate->pDevDesc = pDevDesc;
 
@@ -2438,6 +2521,22 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
 
     if (PhyStartStopInfo.bStart)
     {
+#if (defined CONFIG_XENO_COBALT)
+        mutex_lock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+        if (NULL == S_oAtemsysWorkerThreadDesc.pfNextTask)
+        {
+            S_oAtemsysWorkerThreadDesc.pfNextTask = StartPhyThread;
+            S_oAtemsysWorkerThreadDesc.pNextTaskData = (void*)pDrvDescPrivate->pPDev;
+        }
+        else
+        {
+            mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+            ERR("StartPhy failed! WorkerThread is busy!\n");
+            nRetVal = -EAGAIN;
+            goto Exit;
+        }
+        mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+#else
         pDrvDescPrivate->etx_thread_StartPhy = kthread_create(StartPhyThread,(void*)pDrvDescPrivate->pPDev,"StartPhyThread");
         if(NULL == pDrvDescPrivate->etx_thread_StartPhy)
         {
@@ -2446,10 +2545,27 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
             goto Exit;
         }
         wake_up_process(pDrvDescPrivate->etx_thread_StartPhy);
+#endif /*#if (defined CONFIG_XENO_COBALT)*/
         dwRetVal = 0; /* EC_E_NOERROR */
     }
     else
     {
+#if (defined CONFIG_XENO_COBALT)
+        mutex_lock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+        if (NULL == S_oAtemsysWorkerThreadDesc.pfNextTask)
+        {
+            S_oAtemsysWorkerThreadDesc.pfNextTask = StopPhyThread;
+            S_oAtemsysWorkerThreadDesc.pNextTaskData = (void*)pDrvDescPrivate->pPDev;
+        }
+        else
+        {
+            mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+            ERR("StopPhy failed! WorkerThread is busy!\n");
+            nRetVal = -EAGAIN;
+            goto Exit;
+        }
+        mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+#else
         pDrvDescPrivate->etx_thread_StopPhy = kthread_create(StopPhyThread,(void*)pDrvDescPrivate->pPDev,"StopPhyThread");
         if(NULL == pDrvDescPrivate->etx_thread_StopPhy)
         {
@@ -2458,6 +2574,7 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
             goto Exit;
         }
         wake_up_process(pDrvDescPrivate->etx_thread_StopPhy);
+#endif /* #if (defined CONFIG_XENO_COBALT) */
         dwRetVal = 0; /* EC_E_NOERROR */
     }
 
@@ -2657,6 +2774,64 @@ Exit:
     return nRetVal;
 }
 
+static int PhyResetIoctl(unsigned long ioctlParam)
+{
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate  = NULL;
+    unsigned int* pdwIoctlData = (__u32 *)ioctlParam;
+    unsigned int dwIndex = 0;
+    unsigned int dwRetVal = 0;
+    int nRetVal = -1;
+    int nRes = -1;
+
+    nRes = get_user(dwIndex, pdwIoctlData);
+    if (0 != nRes) { nRetVal = nRes; goto Exit; }
+
+    if (dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
+    {
+        dwRetVal = 0x98110002; /* EC_E_INVALIDINDEX */
+        nRetVal = 0;
+        goto Exit;
+    }
+    pDrvDescPrivate = S_apDrvDescPrivate[dwIndex];
+    if (NULL == pDrvDescPrivate)
+    {
+        dwRetVal = 0x9811000C; /* EC_E_NOTFOUND */
+        nRetVal = 0;
+        goto Exit;
+    }
+
+    if (!pDrvDescPrivate->MacInfo.bPhyResetSupported)
+    {
+        DBG("PhyResetIoctl: PhyReset not supported\n");
+        dwRetVal = 0x98110001; /* EC_E_NOTSUPPORTED */
+        nRetVal = 0;
+        goto Exit;
+    }
+
+    nRes = ResetPhyViaGpio(pDrvDescPrivate);
+    if (0 != nRes)
+    {
+        dwRetVal = 0x98110000; /* EC_E_ERROR */
+        nRetVal = 0;
+        goto Exit;
+    }
+
+    dwRetVal = 0; /* EC_E_NOERROR */
+    nRetVal = 0;
+
+Exit:
+    if (0 == nRetVal)
+    {
+        put_user(dwRetVal, pdwIoctlData);
+    }
+    else
+    {
+        put_user(0x98110000 /* EC_E_ERROR */, pdwIoctlData);
+    }
+
+    return nRetVal;
+}
+
 static void UpdatePhyInfoByLinuxPhyDriver(struct net_device *ndev)
 {
     struct phy_device* phy_dev = ndev->phydev;
@@ -2686,6 +2861,13 @@ static int MdioProbe(struct net_device *ndev)
         pPhyDev = of_phy_connect(ndev, pDrvDescPrivate->pPhyNode,
                      &UpdatePhyInfoByLinuxPhyDriver, 0,
                      pDrvDescPrivate->PhyInterface);
+    }
+    else if (NULL != pDrvDescPrivate->pMdioNode)
+    {
+        struct platform_device *mdio;
+        mdio = of_find_device_by_node(pDrvDescPrivate->pMdioNode);
+        snprintf(phy_name, sizeof(phy_name), PHY_ID_FMT, mdio->name, pDrvDescPrivate->MacInfo.dwPhyAddr);
+        pPhyDev = phy_connect(ndev, phy_name, &UpdatePhyInfoByLinuxPhyDriver, pDrvDescPrivate->PhyInterface);
     }
     else if (NULL != pDrvDescPrivate->pMdioBus)
     {
@@ -2967,6 +3149,20 @@ static int StopPhyWithoutIoctlMdioHandling(struct platform_device *pPDev)
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
 
     /* start StopPhy as thread */
+#if (defined CONFIG_XENO_COBALT)
+    mutex_lock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+    if (NULL == S_oAtemsysWorkerThreadDesc.pfNextTask)
+    {
+        S_oAtemsysWorkerThreadDesc.pfNextTask = StopPhyThread;
+        S_oAtemsysWorkerThreadDesc.pNextTaskData = (void*)pDrvDescPrivate->pPDev;
+    }
+    else
+    {
+        ERR("StopPhyWithoutIoctlMdioHandling failed! WorkerThread is busy!\n");
+        return -EAGAIN;
+    }
+    mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+#else
     pDrvDescPrivate->etx_thread_StopPhy = kthread_create(StopPhyThread,(void*)pDrvDescPrivate->pPDev,"StopPhyThread");
     if(NULL == pDrvDescPrivate->etx_thread_StopPhy)
     {
@@ -2974,6 +3170,7 @@ static int StopPhyWithoutIoctlMdioHandling(struct platform_device *pPDev)
         return -1;
     }
     wake_up_process(pDrvDescPrivate->etx_thread_StopPhy);
+#endif /* #if (defined CONFIG_XENO_COBALT) */
 
     /* trigger event to continue MdioRead and MdioWrite */
     /* MdioRead returns always 0 */
@@ -3014,6 +3211,39 @@ static struct device_node * findDeviceTreeNode(struct platform_device *pPDev)
         pDevNode = NULL;
 
     return pDevNode;
+}
+
+static int ResetPhyViaGpio(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
+{
+    int nRes = 0;
+
+    nRes = devm_gpio_request_one(&pDrvDescPrivate->pPDev->dev, pDrvDescPrivate->nPhyResetGpioPin,
+            pDrvDescPrivate->bPhyResetGpioActiveHigh ? GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW,
+            "phy-reset");
+    if (nRes)
+    {
+        ERR("%s: failed to get atemsys-phy-reset-gpios: %d \n", pDrvDescPrivate->pPDev->name, nRes);
+        return nRes;
+    }
+
+    if (pDrvDescPrivate->nPhyResetDuration > 20)
+        msleep(pDrvDescPrivate->nPhyResetDuration);
+    else
+        usleep_range(pDrvDescPrivate->nPhyResetDuration * 1000, pDrvDescPrivate->nPhyResetDuration * 1000 + 1000);
+
+    gpio_set_value_cansleep(pDrvDescPrivate->nPhyResetGpioPin, !pDrvDescPrivate->bPhyResetGpioActiveHigh);
+
+    devm_gpio_free(&pDrvDescPrivate->pPDev->dev, pDrvDescPrivate->nPhyResetGpioPin);
+
+    if (!pDrvDescPrivate->nPhyResetPostDelay)
+        return 0;
+
+    if (pDrvDescPrivate->nPhyResetPostDelay > 20)
+        msleep(pDrvDescPrivate->nPhyResetPostDelay);
+    else
+        usleep_range(pDrvDescPrivate->nPhyResetPostDelay * 1000, pDrvDescPrivate->nPhyResetPostDelay * 1000 + 1000);
+
+    return 0;
 }
 
 static int EthernetDriverProbe(struct platform_device *pPDev)
@@ -3249,7 +3479,19 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
         }
         else
         {
-            INF("%s: Missing phy-handle in the Device Tree\n", pPDev->name);
+            int nLen;
+            const __be32 *pPhyId;
+            pPhyId = of_get_property(pDevNode, "phy_id", &nLen);
+
+            if (nLen == (sizeof(__be32) * 2))
+            {
+                pDrvDescPrivate->pMdioNode = of_find_node_by_phandle(be32_to_cpup(pPhyId));
+                pDrvDescPrivate->MacInfo.dwPhyAddr = be32_to_cpup(pPhyId+1);
+            }
+            else
+            {
+                INF("%s: Missing phy-handle in the Device Tree\n", pPDev->name);
+            }
         }
 
         /* look for mdio node */
@@ -3258,11 +3500,11 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
             (NULL == of_get_child_by_name(pDevNode, "phy"))     &&
             (NULL == of_get_child_by_name(pDevNode, "ethernet-phy")))
         {
-            if (NULL != pDrvDescPrivate->pPhyNode)
+            if ((NULL != pDrvDescPrivate->pPhyNode) || (NULL != pDrvDescPrivate->pMdioNode))
             {
                 /* mdio bus owned by another mac instance */
                 pDrvDescPrivate->MacInfo.bNoMdioBus = true;
-                INF("%s: mac has no mdio bus, uses mdio bus of other instance.\n", pPDev->name );
+                INF("%s: mac has no mdio bus, uses mdio bus of other instance.\n", pPDev->name);
             }
             else
             {
@@ -3276,6 +3518,23 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
             /* mdio bus is owned by current mac instance */
             pDrvDescPrivate->MacInfo.bNoMdioBus = false;
             DBG("%s: mac has mdio bus.\n", pPDev->name );
+        }
+
+        /* PHY reset data */
+        nRes = of_property_read_u32(pDevNode, "atemsys-phy-reset-duration", &pDrvDescPrivate->nPhyResetDuration);
+        if (nRes) pDrvDescPrivate->nPhyResetDuration = 0;
+        pDrvDescPrivate->nPhyResetGpioPin = of_get_named_gpio(pDevNode, "atemsys-phy-reset-gpios", 0);
+        nRes = of_property_read_u32(pDevNode, "atemsys-phy-reset-post-delay", &pDrvDescPrivate->nPhyResetPostDelay);
+        if (nRes) pDrvDescPrivate->nPhyResetPostDelay = 0;
+        pDrvDescPrivate->bPhyResetGpioActiveHigh = of_property_read_bool(pDevNode, "atemsys-phy-reset-active-high");
+
+        if ((0 != pDrvDescPrivate->nPhyResetDuration) && (pDrvDescPrivate->nPhyResetGpioPin != -EPROBE_DEFER) 
+                && gpio_is_valid(pDrvDescPrivate->nPhyResetGpioPin))
+        {
+            pDrvDescPrivate->MacInfo.bPhyResetSupported = true;
+            DBG("%s: PhyReset ready: GpioPin: %d; Duration %d, bActiveHigh %d, post delay %d\n", pPDev->name,
+                pDrvDescPrivate->nPhyResetGpioPin, pDrvDescPrivate->nPhyResetDuration,
+                pDrvDescPrivate->bPhyResetGpioActiveHigh, pDrvDescPrivate->nPhyResetPostDelay);
         }
     }
 
@@ -3343,6 +3602,8 @@ static int EthernetDriverRemove(struct platform_device *pPDev)
             DBG("%s: Clock %s unprepared\n", pPDev->name, pDrvDescPrivate->clk_ids[i]);
         }
     }
+    mutex_destroy(&pDrvDescPrivate->mdio_mutex);
+    mutex_destroy(&pDrvDescPrivate->mdio_order_mutex);
 
     pinctrl_pm_select_sleep_state(&pPDev->dev);
 
@@ -3365,6 +3626,7 @@ static int EthernetDriverRemove(struct platform_device *pPDev)
 static int CleanUpEthernetDriverOnRelease(ATEMSYS_T_DEVICE_DESC* pDevDesc)
 {
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
+    int nRes = -1;
     unsigned int i = 0;
 
     if (pDevDesc == NULL)
@@ -3388,7 +3650,13 @@ static int CleanUpEthernetDriverOnRelease(ATEMSYS_T_DEVICE_DESC* pDevDesc)
             /* ensure mdio bus and PHY are down */
             if ((NULL != pDrvDescPrivate->pPhyDev) || (NULL != pDrvDescPrivate->pMdioBus))
             {
-                StopPhyWithoutIoctlMdioHandling(pDrvDescPrivate->pPDev);
+                int timeout = 0;
+                for (timeout = 50; timeout-- < 0; msleep(100))
+                {
+                    nRes = StopPhyWithoutIoctlMdioHandling(pDrvDescPrivate->pPDev);
+                    if (-EAGAIN != nRes)
+                        break;
+                }
             }
             /* clean descriptor */
             pDrvDescPrivate->pDevDesc = NULL;
@@ -3649,6 +3917,16 @@ int init_module(void)
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
     memset(S_apDrvDescPrivate ,0, ATEMSYS_MAX_NUMBER_DRV_INSTANCES * sizeof(ATEMSYS_T_DRV_DESC_PRIVATE*));
     platform_driver_register(&mac_driver);
+#if (defined CONFIG_XENO_COBALT)
+    memset(&S_oAtemsysWorkerThreadDesc, 0, sizeof(ATEMSYS_T_WORKER_THREAD_DESC));
+    mutex_init(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+    S_oAtemsysWorkerThreadDesc.etx_thread = kthread_create(AtemsysWorkerThread,(void*)&S_oAtemsysWorkerThreadDesc,"Atemsys_WorkerThread");
+    if(NULL == S_oAtemsysWorkerThreadDesc.etx_thread)
+    {
+        ERR("Cannot create kthread for AtemsysWorkerThread\n");
+    }
+    wake_up_process(S_oAtemsysWorkerThreadDesc.etx_thread);
+#endif /*#if (defined CONFIG_XENO_COBALT)*/
 #endif
 
 #if (defined INCLUDE_ATEMSYS_PCI_DRIVER)
@@ -3735,6 +4013,19 @@ void cleanup_module(void)
     /* Unregister Pci and Platform Driver */
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
     platform_driver_unregister(&mac_driver);
+#if (defined CONFIG_XENO_COBALT)
+    S_oAtemsysWorkerThreadDesc.bWorkerTaskShutdown = true;
+    for (;;)
+    {
+        if (!S_oAtemsysWorkerThreadDesc.bWorkerTaskRunning)
+        {
+            break;
+        }
+
+        msleep(100);
+    }
+    mutex_destroy(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
+#endif /*#if (defined CONFIG_XENO_COBALT)*/
 #endif
 
 #if (defined INCLUDE_ATEMSYS_PCI_DRIVER)

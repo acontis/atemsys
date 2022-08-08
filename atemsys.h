@@ -98,6 +98,10 @@
  *            (insmod atemsys AllowedPciDevices="0000:01:00.0;0000:02:00.0")
  *  V1.4.19 - Fix Xenomai2 ARMv8 32Bit
  *  V1.4.20 - Fix support for CMA for kernel > 4.9.00
+ *  V1.4.21 - Add Device Tree Ethernet driver support for CPSW
+ *            Add Device Tree Ethernet driver phy reset
+ *            Fix Device Tree Ethernet on Xenomai3
+ *            Add HAVE_IRQ_TO_DESC define to handle non-mainstream API variance
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -111,10 +115,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.20"
-#define ATEMSYS_VERSION_NUM  1,4,20
+#define ATEMSYS_VERSION_STR "1.4.21"
+#define ATEMSYS_VERSION_NUM  1,4,21
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,20)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,21)
 #endif
 
 /* support selection */
@@ -161,6 +165,7 @@
 #define ATEMSYS_IOCTL_RETURN_MDIO_ORDER         _IOWR(MAJOR_NUM, 11, ATEMSYS_T_MDIO_ORDER)
 #define ATEMSYS_IOCTL_GET_PHY_INFO              _IOWR(MAJOR_NUM, 12, ATEMSYS_T_PHY_INFO)
 #define ATEMSYS_IOCTL_MOD_SET_API_VERSION       _IOR(MAJOR_NUM,  13, __u32)
+#define ATEMSYS_IOCTL_PHY_RESET                 _IOWR(MAJOR_NUM, 14, __u32)
 
 /* support legacy source code */
 #define IOCTL_PCI_FIND_DEVICE           ATEMSYS_IOCTL_PCI_FIND_DEVICE
@@ -315,7 +320,8 @@ typedef struct
     __u32                       bNoMdioBus;                         /* [in]     Mac don't need to run own Mdio Bus */
     __u32                       dwPhyAddr;                          /* [in]     Address of PHY on mdio bus */
     __u32                       dwErrorCode;                        /* [in]     Error code defined in SDK/INC/EcError.h */
-    __u32                       dwReserved[16];
+    __u32                       bPhyResetSupported;                 /* [in]    Device tree has data for phy reset */
+    __u32                       dwReserved[15];
 } __attribute__((packed)) ATEMSYS_T_MAC_INFO;
 
 typedef struct
