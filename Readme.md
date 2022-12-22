@@ -158,7 +158,10 @@ ethernet@02188000 {
 ### Kernel Modul Parametern
 
 <strong>loglevel:</strong>
-Reduce atemsys prints by adding log level (insmod atemsys loglevel=6) analog to kernel log level
+Set atemsys log level (Default <code>KERN_INFO(6)</code>) according kernel log level definition.<br>
+Example: <code>insmod atemsys loglevel=3</code>
 
 <strong>AllowedPciDevices:</strong>
-Only add special Pci/Pcie devices to the atemsys pci driver. In default all Pci network devices are bind. AllowedPciDevices="" will turn off PCI driver, and with a semicolon seperated list the allowed devices are defined  (insmod atemsys AllowedPciDevices="0000:01:00.0;0000:02:00.0").
+Select PCI / PCIe devices to be registered by atemsys. By default all PCI network devices are registered. Passing an empty string turns off the PCI driver registration. A semicolon separated list of devices defined by the following format can be passed:<br>
+<code>\<domain\>:\<bus\>:\<device\>.\<func\></code><br>
+Example: <code>insmod atemsys AllowedPciDevices="0000:01:00.0;0000:02:00.0"</code>
