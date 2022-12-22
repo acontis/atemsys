@@ -153,3 +153,12 @@ ethernet@02188000 {
   };
 };
 </code></pre>
+
+
+### Kernel Modul Parametern
+
+<strong>loglevel:</strong>
+Reduce atemsys prints by adding log level (insmod atemsys loglevel=6) analog to kernel log level
+
+<strong>AllowedPciDevices:</strong>
+Only add special Pci/Pcie devices to the atemsys pci driver. In default all Pci network devices are bind. AllowedPciDevices="" will turn off PCI driver, and with a semicolon seperated list the allowed devices are defined  (insmod atemsys AllowedPciDevices="0000:01:00.0;0000:02:00.0").
