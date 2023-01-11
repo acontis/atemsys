@@ -155,7 +155,7 @@ ethernet@02188000 {
 </code></pre>
 
 
-### Kernel Modul Parametern
+### Kernel Modul Parameters
 
 <strong>loglevel:</strong>
 Set atemsys log level (Default <code>KERN_INFO(6)</code>) according kernel log level definition.<br>
