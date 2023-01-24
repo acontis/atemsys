@@ -170,7 +170,7 @@
 #include <linux/aer.h>
 #endif
 
-#ifndef HAVE_IRQ_TO_DESC
+#if !(defined HAVE_IRQ_TO_DESC) && !(defined CONFIG_HAVE_DOVETAIL) && !(defined CONFIG_IRQ_PIPELINE)
  #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,1))
   #define INCLUDE_IRQ_TO_DESC
  #endif
@@ -198,23 +198,13 @@ MODULE_DESCRIPTION("Generic usermode PCI driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(ATEMSYS_VERSION_STR);
 
-static char *AllowedPciDevices = "PCI_ANY_ID";
-module_param(AllowedPciDevices, charp, 0000);
-MODULE_PARM_DESC(AllowedPciDevices, "Bind only pci devices in semicolon separated list e.g. AllowedPciDevices=\"0000:01:00.0\", empty string will turn off atemsys_pci driver.");
-
-static int loglevel = LOGLEVEL_INFO;
-module_param(loglevel, int, 0);
-MODULE_PARM_DESC(loglevel, "Set log level default LOGLEVEL_INFO, see /include/linux/kern_levels.h");
-
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,18))
 #error "At least kernel version 2.6.18 is needed to compile!"
 #endif
 
-#if (defined CONFIG_XENO_COBALT)
-#define PRINTK(prio, str, ...) rtdm_printk(prio ATEMSYS_DEVICE_NAME ": " str,  ##__VA_ARGS__)
-#else
-#define PRINTK(prio, str, ...) printk(prio ATEMSYS_DEVICE_NAME ": " str,  ##__VA_ARGS__)
-#endif /* CONFIG_XENO_COBALT */
+static char* AllowedPciDevices = "PCI_ANY_ID";
+module_param(AllowedPciDevices, charp, 0000);
+MODULE_PARM_DESC(AllowedPciDevices, "Bind only pci devices in semicolon separated list e.g. AllowedPciDevices=\"0000:01:00.0\", empty string will turn off atemsys_pci driver.");
 
 /* Workaround for older kernels */
 /* from 'linux/kern_levels.h' */
@@ -231,6 +221,16 @@ MODULE_PARM_DESC(loglevel, "Set log level default LOGLEVEL_INFO, see /include/li
 #ifndef LOGLEVEL_DEBUG
 #define LOGLEVEL_DEBUG      7   /* debug-level messages */
 #endif
+
+static int loglevel = LOGLEVEL_INFO;
+module_param(loglevel, int, 0);
+MODULE_PARM_DESC(loglevel, "Set log level default LOGLEVEL_INFO, see /include/linux/kern_levels.h");
+
+#if (defined CONFIG_XENO_COBALT)
+#define PRINTK(prio, str, ...) rtdm_printk(prio ATEMSYS_DEVICE_NAME ": " str,  ##__VA_ARGS__)
+#else
+#define PRINTK(prio, str, ...) printk(prio ATEMSYS_DEVICE_NAME ": " str,  ##__VA_ARGS__)
+#endif /* CONFIG_XENO_COBALT */
 
 #define ERR(str, ...) (LOGLEVEL_ERR <= loglevel)?     PRINTK(KERN_ERR, str, ##__VA_ARGS__)     :0
 #define WRN(str, ...) (LOGLEVEL_WARNING <= loglevel)? PRINTK(KERN_WARNING, str, ##__VA_ARGS__) :0
@@ -295,14 +295,14 @@ typedef struct _ATEMSYS_T_DEVICE_DESC
 {
     struct list_head list;
 #if (defined CONFIG_PCI)
-    struct pci_dev  *pPcidev;
+    struct pci_dev* pPcidev;
   #if (defined INCLUDE_ATEMSYS_PCI_DRIVER)
-    struct _ATEMSYS_T_PCI_DRV_DESC_PRIVATE *pPciDrvDesc;
+    struct _ATEMSYS_T_PCI_DRV_DESC_PRIVATE* pPciDrvDesc;
   #endif
 #endif
     struct platform_device* pPlatformDev;
   #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
-    struct _ATEMSYS_T_DRV_DESC_PRIVATE *pDrvDesc;
+    struct _ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDesc;
   #endif
 
     ATEMSYS_T_IRQ_DESC  irqDesc;
@@ -314,9 +314,9 @@ typedef struct _ATEMSYS_T_DEVICE_DESC
 typedef struct _ATEMSYS_T_MMAP_DESC
 {
    struct list_head  list;
-   ATEMSYS_T_DEVICE_DESC *pDevDesc;
+   ATEMSYS_T_DEVICE_DESC* pDevDesc;
    dma_addr_t        dmaAddr;
-   void             *pVirtAddr;
+   void*             pVirtAddr;
    size_t            len;
 } ATEMSYS_T_MMAP_DESC;
 
@@ -418,16 +418,16 @@ static int ReturnMdioOrderIoctl(unsigned long ioctlParam);
 static int GetPhyInfoIoctl(unsigned long ioctlParam);
 static int PhyResetIoctl(unsigned long ioctlParam);
 static int ResetPhyViaGpio(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate);
-static int EthernetDriverRemove(struct platform_device *pPDev);
-static int EthernetDriverProbe(struct platform_device *pPDev);
+static int EthernetDriverRemove(struct platform_device* pPDev);
+static int EthernetDriverProbe(struct platform_device* pPDev);
 
 #if (defined CONFIG_XENO_COBALT)
-static int StartPhy(struct platform_device *pPDev);
-static int StopPhy(struct platform_device *pPDev);
+static int StartPhy(struct platform_device* pPDev);
+static int StopPhy(struct platform_device* pPDev);
 typedef struct _ATEMSYS_T_WORKER_THREAD_DESC
 {
     struct task_struct*     etx_thread;
-    int (* pfNextTask)(void *);
+    int (* pfNextTask)(void*);
     void*                   pNextTaskData;
     struct mutex            WorkerTask_mutex;
     bool                    bWorkerTaskShutdown;
@@ -435,10 +435,10 @@ typedef struct _ATEMSYS_T_WORKER_THREAD_DESC
 } ATEMSYS_T_WORKER_THREAD_DESC;
 static ATEMSYS_T_WORKER_THREAD_DESC S_oAtemsysWorkerThreadDesc;
 
-static int AtemsysWorkerThread(void *data)
+static int AtemsysWorkerThread(void* data)
 {
     void* pWorkerTaskData = NULL;
-    int (* pfWorkerTask)(void *);
+    int (* pfWorkerTask)(void*);
     pfWorkerTask = NULL;
 
     S_oAtemsysWorkerThreadDesc.bWorkerTaskRunning = true;
@@ -473,12 +473,12 @@ static int AtemsysWorkerThread(void *data)
 #endif /* INCLUDE_ATEMSYS_DT_DRIVER */
 
 
-static void dev_munmap(struct vm_area_struct *vma);
+static void dev_munmap(struct vm_area_struct* vma);
 
 #if (defined CONFIG_XENO_COBALT)
-   static int dev_interrupt_handler(rtdm_irq_t *irq_handle);
+   static int dev_interrupt_handler(rtdm_irq_t* irq_handle);
 #else
-   static irqreturn_t dev_interrupt_handler(int nIrq, void *pParam);
+   static irqreturn_t dev_interrupt_handler(int nIrq, void* pParam);
 #endif /* CONFIG_XENO_COBALT */
 
 static struct vm_operations_struct mmap_vmop =
@@ -535,7 +535,7 @@ static int dev_irq_disabled(ATEMSYS_T_IRQ_DESC* pIrqDesc)
 #endif /* !CONFIG_XENO_COBALT */
 
 #if (!defined __arm__) && (!defined __aarch64__)
-static void * dev_dma_alloc(u32 dwLen, dma_addr_t *pDmaAddr)
+static void* dev_dma_alloc(u32 dwLen, dma_addr_t* pDmaAddr)
 {
    unsigned long virtAddr;
    unsigned long tmpAddr;
@@ -558,12 +558,12 @@ static void * dev_dma_alloc(u32 dwLen, dma_addr_t *pDmaAddr)
      tmpSize -= PAGE_SIZE;
    }
 
-   *pDmaAddr = virt_to_phys((void *) virtAddr);
+   *pDmaAddr = virt_to_phys((void*) virtAddr);
 
-   return (void *) virtAddr;
+   return (void*) virtAddr;
 }
 
-static void dev_dma_free(u32 dwLen, void *virtAddr)
+static void dev_dma_free(u32 dwLen, void* virtAddr)
 {
    unsigned long tmpAddr = (unsigned long) virtAddr;
    u32 tmpSize = dwLen;
@@ -579,12 +579,12 @@ static void dev_dma_free(u32 dwLen, void *virtAddr)
 }
 #endif /* !__arm__ */
 
-static void dev_munmap(struct vm_area_struct *vma)
+static void dev_munmap(struct vm_area_struct* vma)
 {
-   ATEMSYS_T_MMAP_DESC *pMmapDesc = (ATEMSYS_T_MMAP_DESC *) vma->vm_private_data;
+   ATEMSYS_T_MMAP_DESC* pMmapDesc = (ATEMSYS_T_MMAP_DESC*) vma->vm_private_data;
 
    INF("dev_munmap: 0x%px -> 0x%px (%d)\n",
-         (void *) pMmapDesc->pVirtAddr, (void *)(unsigned long)pMmapDesc->dmaAddr, (int) pMmapDesc->len);
+         (void*) pMmapDesc->pVirtAddr, (void*)(unsigned long)pMmapDesc->dmaAddr, (int) pMmapDesc->len);
     if (0 == pMmapDesc->dmaAddr) { INF("dev_munmap: 0 == pMmapDesc->dmaAddr!\n"); return; }
     if (NULL == pMmapDesc->pVirtAddr) { INF("dev_munmap: NULL == pMmapDesc->pVirtAddr!\n"); return; }
 
@@ -622,7 +622,7 @@ static void dev_munmap(struct vm_area_struct *vma)
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24))
 struct pci_dev *pci_get_bus_and_slot(unsigned int bus, unsigned int devfn)
 {
-    struct pci_dev *dev = NULL;
+    struct pci_dev* dev = NULL;
 
     for_each_pci_dev(dev) {
         if (pci_domain_nr(dev->bus) == 0 &&
@@ -633,40 +633,58 @@ struct pci_dev *pci_get_bus_and_slot(unsigned int bus, unsigned int devfn)
 }
 #endif
 
-static int dev_pci_select_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, ATEMSYS_T_PCI_SELECT_DESC* pciDesc, size_t size)
+static int dev_pci_select_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, ATEMSYS_T_PCI_SELECT_DESC* pPciDesc, size_t size)
 {
-    int nRetval = -EFAULT;
-    s32 nPciBus, nPciDev, nPciFun;
-    s32 nPciDomain = 0;
+    int nRetVal = -EFAULT;
+    s32 nPciBus, nPciDev, nPciFun, nPciDomain;
 
     switch (size)
     {
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00):
     {
-        ATEMSYS_T_PCI_SELECT_DESC_v1_0_00* pciDesc_v1_0_00 = (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)pciDesc;
-        get_user(nPciBus,   &pciDesc_v1_0_00->nPciBus);
-        get_user(nPciDev,   &pciDesc_v1_0_00->nPciDev);
-        get_user(nPciFun,   &pciDesc_v1_0_00->nPciFun);
+        ATEMSYS_T_PCI_SELECT_DESC_v1_0_00 oPciDesc_v1_0_00;
+        nRetVal = copy_from_user(&oPciDesc_v1_0_00, (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)pPciDesc, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00));
+        if (0 != nRetVal)
+        {
+            ERR("dev_pci_select_device failed: %d\n", nRetVal);
+            goto Exit;
+        }
+        nPciBus    = oPciDesc_v1_0_00.nPciBus;
+        nPciDev    = oPciDesc_v1_0_00.nPciDev;
+        nPciFun    = oPciDesc_v1_0_00.nPciFun;
+        nPciDomain = 0;
     } break;
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05):
     {
-        ATEMSYS_T_PCI_SELECT_DESC_v1_3_05* pciDesc_v1_3_05 = (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)pciDesc;
-        get_user(nPciBus,   &pciDesc_v1_3_05->nPciBus);
-        get_user(nPciDev,   &pciDesc_v1_3_05->nPciDev);
-        get_user(nPciFun,   &pciDesc_v1_3_05->nPciFun);
-        get_user(nPciDomain,&pciDesc_v1_3_05->nPciDomain);
+        ATEMSYS_T_PCI_SELECT_DESC_v1_3_05 oPciDesc_v1_3_05;
+        nRetVal = copy_from_user(&oPciDesc_v1_3_05, (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)pPciDesc, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05));
+        if (0 != nRetVal)
+        {
+            ERR("dev_pci_select_device failed: %d\n", nRetVal);
+            goto Exit;
+        }
+        nPciBus    = oPciDesc_v1_3_05.nPciBus;
+        nPciDev    = oPciDesc_v1_3_05.nPciDev;
+        nPciFun    = oPciDesc_v1_3_05.nPciFun;
+        nPciDomain = oPciDesc_v1_3_05.nPciDomain;
     } break;
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12):
     {
-        ATEMSYS_T_PCI_SELECT_DESC_v1_4_12* pciDesc_v1_4_12 = (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)pciDesc;
-        get_user(nPciBus,   &pciDesc_v1_4_12->nPciBus);
-        get_user(nPciDev,   &pciDesc_v1_4_12->nPciDev);
-        get_user(nPciFun,   &pciDesc_v1_4_12->nPciFun);
-        get_user(nPciDomain,&pciDesc_v1_4_12->nPciDomain);
+        ATEMSYS_T_PCI_SELECT_DESC_v1_4_12 oPciDesc_v1_4_12;
+        nRetVal = copy_from_user(&oPciDesc_v1_4_12, (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)pPciDesc, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12));
+        if (0 != nRetVal)
+        {
+            ERR("dev_pci_select_device failed: %d\n", nRetVal);
+            goto Exit;
+        }
+        nPciBus    = oPciDesc_v1_4_12.nPciBus;
+        nPciDev    = oPciDesc_v1_4_12.nPciDev;
+        nPciFun    = oPciDesc_v1_4_12.nPciFun;
+        nPciDomain = oPciDesc_v1_4_12.nPciDomain;
     } break;
     default:
     {
-        nRetval = -EFAULT;
+        nRetVal = -EFAULT;
         ERR("pci_conf: EFAULT\n");
         goto Exit;
     }
@@ -691,7 +709,7 @@ static int dev_pci_select_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, ATEMSYS_T_PCI_
                 if (pDrvInstance->pDevDesc != NULL)
                 {
                     ERR("dev_pci_select_device: device \"%s\" in use by another instance?\n", pci_name(pDrvInstance->pPciDev));
-                    nRetval = -EBUSY;
+                    nRetVal = -EBUSY;
                     goto Exit;
                 }
                 pDevDesc->pPcidev        = pDrvInstance->pPciDev;
@@ -715,15 +733,15 @@ static int dev_pci_select_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, ATEMSYS_T_PCI_
         goto Exit;
     }
 
-    nRetval = DRIVER_SUCCESS;
+    nRetVal = DRIVER_SUCCESS;
 
 Exit:
-    return nRetval;
+    return nRetVal;
 }
 
 static int DefaultPciSettings(struct pci_dev* pPciDev)
 {
-    int nRetval = -EIO;
+    int nRetVal = -EIO;
     int nRes = -EIO;
 
     /* Turn on Memory-Write-Invalidate if it is supported by the device*/
@@ -735,7 +753,7 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
 
     /* remove wrong dma_coherent bit on ARM systems */
 #if ((defined __aarch64__) || (defined __arm__))
- #if (LINUX_VERSION_CODE < KERNEL_VERSION(4,12,0))
+ #if (LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0))
   #if (defined CONFIG_PHYS_ADDR_T_64BIT)
     if (is_device_dma_coherent(&pPciDev->dev))
     {
@@ -771,7 +789,7 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
         if (nRes)
         {
             ERR("%s: DefaultPciSettings: dma_set_mask_and_coherent failed\n", pci_name(pPciDev));
-            nRetval = nRes;
+            nRetVal = nRes;
             goto Exit;
         }
     }
@@ -790,10 +808,10 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
         INF("%s: DefaultPciSettings: MSI configured\n", pci_name(pPciDev));
     }
 
-    nRetval = 0;
+    nRetVal = 0;
 
 Exit:
-   return nRetval;
+   return nRetVal;
 }
 
 /*
@@ -801,63 +819,41 @@ Exit:
  */
 static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlParam, size_t size)
 {
-    int nRetval = -EIO;
+    int nRetVal = -EIO;
     int nRc;
     int i;
     unsigned long ioBase;
-    u32 dwIOLen;
     s32 nBar = 0;
     u32 dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,0,0);
-    ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*  pPciDesc_v1_4_12 = NULL;
-    ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*  pPciDesc_v1_3_05 = NULL;
-    ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*  pPciDesc_v1_0_00= NULL;
-
+    ATEMSYS_T_PCI_SELECT_DESC_v1_4_12 oPciDesc;
+    memset(&oPciDesc, 0, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12));
     switch (size)
     {
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00):
     {
         dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,0,0);
-        pPciDesc_v1_0_00 = (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam;
-        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_0_00, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00)))
-        {
-            nRetval = -EFAULT;
-        }
     } break;
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05):
     {
         dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,3,5);
-        pPciDesc_v1_3_05 = (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam;
-        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_3_05, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05)))
-        {
-            nRetval = -EFAULT;
-        }
     } break;
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12):
     {
         dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,4,12);
-        pPciDesc_v1_4_12 = (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam;
-        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_4_12, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12)))
-        {
-            nRetval = -EFAULT;
-        }
     } break;
     default:
     {
-        nRetval = -EFAULT;
-    }
-    }
-
-    if (-EFAULT == nRetval)
-    {
-        ERR("pci_conf: EFAULT\n");
+        nRetVal = -EIO;
+        ERR("pci_conf: Invalid parameter\n");
         goto Exit;
+    }
     }
 
     if (pDevDesc->pPcidev != NULL)
     {
         WRN("pci_conf: error call ioctl(ATEMSYS_IOCTL_PCI_RELEASE_DEVICE) first\n");
         goto Exit;
-     }
+    }
     if (dev_pci_select_device(pDevDesc, (ATEMSYS_T_PCI_SELECT_DESC*)ioctlParam, size) != DRIVER_SUCCESS)
     {
         goto Exit;
@@ -872,47 +868,17 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
             {
                 ERR("pci_conf: 64-Bit IO address not supported\n");
                 INF("pci_conf: Update LinkLayer for 64-Bit IO address support!\n");
-                nRetval = -ENODEV;
+                nRetVal = -ENODEV;
                 goto Exit;
             }
 
-            switch (dwAtemsysApiVersion)
-            {
-            case EC_ATEMSYSVERSION(1,0,0):
-            {
-                put_user((u32)pDevDesc->pPciDrvDesc->aBars[i].qwIOMem, &(pPciDesc_v1_0_00->aBar[i].dwIOMem));
-                put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOLen,      &(pPciDesc_v1_0_00->aBar[i].dwIOLen));
-            } break;
-            case EC_ATEMSYSVERSION(1,3,5):
-            {
-                put_user((u32)pDevDesc->pPciDrvDesc->aBars[i].qwIOMem, &(pPciDesc_v1_3_05->aBar[i].dwIOMem));
-                put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOLen,      &(pPciDesc_v1_3_05->aBar[i].dwIOLen));
-            } break;
-            case EC_ATEMSYSVERSION(1,4,12):
-            {
-                put_user(pDevDesc->pPciDrvDesc->aBars[i].qwIOMem,      &(pPciDesc_v1_4_12->aBar[i].qwIOMem));
-                put_user(pDevDesc->pPciDrvDesc->aBars[i].dwIOLen,      &(pPciDesc_v1_4_12->aBar[i].dwIOLen));
-            } break;
-            }
+            oPciDesc.aBar[i].qwIOMem = pDevDesc->pPciDrvDesc->aBars[i].qwIOMem;
+            oPciDesc.aBar[i].dwIOLen = pDevDesc->pPciDrvDesc->aBars[i].dwIOLen;
+
         }
-        switch (dwAtemsysApiVersion)
-        {
-        case EC_ATEMSYSVERSION(1,0,0):
-        {
-            put_user(pDevDesc->pPciDrvDesc->nBarCnt, &(pPciDesc_v1_0_00->nBarCnt));
-            put_user((u32)pDevDesc->pPcidev->irq,    &(pPciDesc_v1_0_00->dwIrq));
-        } break;
-        case EC_ATEMSYSVERSION(1,3,5):
-        {
-            put_user(pDevDesc->pPciDrvDesc->nBarCnt, &(pPciDesc_v1_3_05->nBarCnt));
-            put_user((u32)pDevDesc->pPcidev->irq,    &(pPciDesc_v1_3_05->dwIrq));
-        } break;
-        case EC_ATEMSYSVERSION(1,4,12):
-        {
-            put_user(pDevDesc->pPciDrvDesc->nBarCnt, &(pPciDesc_v1_4_12->nBarCnt));
-            put_user((u32)pDevDesc->pPcidev->irq,    &(pPciDesc_v1_4_12->dwIrq));
-        } break;
-        }
+
+        oPciDesc.nBarCnt = pDevDesc->pPciDrvDesc->nBarCnt;
+        oPciDesc.dwIrq   = (u32)pDevDesc->pPcidev->irq;
     }
     else
 #endif
@@ -932,7 +898,7 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
         {
             ERR("pci_conf: device \"%s\" in use by another driver?\n", pci_name(pDevDesc->pPcidev));
             pDevDesc->pPcidev = NULL;
-            nRetval = -EBUSY;
+            nRetVal = -EBUSY;
             goto Exit;
         }
 
@@ -949,51 +915,16 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
                     ERR("pci_conf: 64-Bit IO address not supported\n");
                     pci_release_regions(pDevDesc->pPcidev);
                     pDevDesc->pPcidev = NULL;
-                    nRetval = -ENODEV;
+                    nRetVal = -ENODEV;
                     goto Exit;
                 }
 
                 /* IO area length */
-                dwIOLen = pci_resource_len(pDevDesc->pPcidev, i);
-
-                switch (dwAtemsysApiVersion)
-                {
-                case EC_ATEMSYSVERSION(1,0,0):
-                {
-                    put_user((u32)ioBase, &(pPciDesc_v1_0_00->aBar[nBar].dwIOMem));
-                    put_user(dwIOLen,     &(pPciDesc_v1_0_00->aBar[nBar].dwIOLen));
-                } break;
-                case EC_ATEMSYSVERSION(1,3,5):
-                {
-                    put_user((u32)ioBase, &(pPciDesc_v1_3_05->aBar[nBar].dwIOMem));
-                    put_user(dwIOLen,     &(pPciDesc_v1_3_05->aBar[nBar].dwIOLen));
-                } break;
-                case EC_ATEMSYSVERSION(1,4,12):
-                {
-                    put_user((u64)ioBase, &(pPciDesc_v1_4_12->aBar[nBar].qwIOMem));
-                    put_user(dwIOLen,     &(pPciDesc_v1_4_12->aBar[nBar].dwIOLen));
-                } break;
-                }
+                oPciDesc.aBar[i].dwIOLen = pci_resource_len(pDevDesc->pPcidev, i);
+                oPciDesc.aBar[i].qwIOMem = ioBase;
 
                 nBar++;
             }
-        }
-
-        /* number of memory BARs */
-        switch (dwAtemsysApiVersion)
-        {
-        case EC_ATEMSYSVERSION(1,0,0):
-        {
-            put_user(nBar, &(pPciDesc_v1_0_00->nBarCnt));
-        } break;
-        case EC_ATEMSYSVERSION(1,3,5):
-        {
-            put_user(nBar, &(pPciDesc_v1_3_05->nBarCnt));
-        } break;
-        case EC_ATEMSYSVERSION(1,4,12):
-        {
-            put_user(nBar, &(pPciDesc_v1_4_12->nBarCnt));
-        } break;
         }
 
         nRc = DefaultPciSettings(pDevDesc->pPcidev);
@@ -1004,22 +935,10 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
             goto Exit;
         }
 
+        /* number of memory BARs */
         /* assigned IRQ */
-        switch (dwAtemsysApiVersion)
-        {
-        case EC_ATEMSYSVERSION(1,0,0):
-        {
-            put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc_v1_0_00->dwIrq));
-        } break;
-        case EC_ATEMSYSVERSION(1,3,5):
-        {
-            put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc_v1_3_05->dwIrq));
-        } break;
-        case EC_ATEMSYSVERSION(1,4,12):
-        {
-            put_user((u32)pDevDesc->pPcidev->irq, &(pPciDesc_v1_4_12->dwIrq));
-        } break;
-        }
+        oPciDesc.nBarCnt = nBar;
+        oPciDesc.dwIrq   = pDevDesc->pPcidev->irq;
     }
 
 #if defined(__arm__) && 0
@@ -1031,84 +950,166 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
    pcie_set_readrq(pDevDesc->pPcidev, 256);
 #endif
 
-   nRetval = 0;
+    switch (dwAtemsysApiVersion)
+    {
+    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00):
+    {
+        ATEMSYS_T_PCI_SELECT_DESC_v1_0_00 oPciDesc_v1_0_00;
+        memset(&oPciDesc_v1_0_00, 0, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00));
+        if (!ACCESS_OK(VERIFY_WRITE, (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00)))
+        {
+            nRetVal = -EFAULT;
+            ERR("pci_conf: EFAULT\n");
+            goto Exit;
+        }
+        oPciDesc_v1_0_00.nBarCnt = oPciDesc.nBarCnt;
+        oPciDesc_v1_0_00.dwIrq   = oPciDesc.dwIrq;
+        for (i = 0; i < oPciDesc_v1_0_00.nBarCnt ; i++)
+        {
+            oPciDesc_v1_0_00.aBar[i].dwIOLen = oPciDesc.aBar[i].dwIOLen;
+            oPciDesc_v1_0_00.aBar[i].dwIOMem = (u32)oPciDesc.aBar[i].qwIOMem;
+        }
+        nRetVal = copy_to_user((ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam, &oPciDesc_v1_0_00, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00));
+        if (0 != nRetVal)
+        {
+            ERR("ioctl_pci_configure_device failed: %d\n", nRetVal);
+            goto Exit;
+        }
+    } break;
+    case EC_ATEMSYSVERSION(1,3,5):
+    {
+        ATEMSYS_T_PCI_SELECT_DESC_v1_3_05 oPciDesc_v1_3_05;
+        memset(&oPciDesc_v1_3_05, 0, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05));
+        if (!ACCESS_OK(VERIFY_WRITE, (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05)))
+        {
+            nRetVal = -EFAULT;
+            ERR("pci_conf: EFAULT\n");
+            goto Exit;
+        }
+        oPciDesc_v1_3_05.nBarCnt = oPciDesc.nBarCnt;
+        oPciDesc_v1_3_05.dwIrq   = oPciDesc.dwIrq;
+        for (i = 0; i < oPciDesc_v1_3_05.nBarCnt ; i++)
+        {
+            oPciDesc_v1_3_05.aBar[i].dwIOLen = oPciDesc.aBar[i].dwIOLen;
+            oPciDesc_v1_3_05.aBar[i].dwIOMem = (u32)oPciDesc.aBar[i].qwIOMem;
+        }
+        nRetVal = copy_to_user((ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam, &oPciDesc_v1_3_05, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05));
+        if (0 != nRetVal)
+        {
+            ERR("ioctl_pci_configure_device failed: %d\n", nRetVal);
+            goto Exit;
+        }
+    } break;
+    case EC_ATEMSYSVERSION(1,4,12):
+    {
+        if (!ACCESS_OK(VERIFY_WRITE, (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12)))
+        {
+            nRetVal = -EFAULT;
+            ERR("pci_conf: EFAULT\n");
+            goto Exit;
+        }
+        nRetVal = copy_to_user((ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam, &oPciDesc, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12));
+        if (0 != nRetVal)
+        {
+            ERR("ioctl_pci_configure_device failed: %d\n", nRetVal);
+            goto Exit;
+        }
+    } break;
+    default:
+    {
+        nRetVal = -EFAULT;
+        goto Exit;
+    }
+    }
+
+   nRetVal = 0;
 
 Exit:
-   return nRetval;
+   return nRetVal;
 }
 
 static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlParam, size_t size)
 {
-    int nRetval = -EIO;
+    int nRetVal = -EIO;
     struct pci_dev* pPciDev = NULL;
     s32 nVendor, nDevice, nInstance, nInstanceId;
     u32 dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,0,0);
-    ATEMSYS_T_PCI_SELECT_DESC_v1_0_00* pPciDesc_v1_0_00 = NULL;
-    ATEMSYS_T_PCI_SELECT_DESC_v1_3_05* pPciDesc_v1_3_05 = NULL;
-    ATEMSYS_T_PCI_SELECT_DESC_v1_4_12* pPciDesc_v1_4_12 = NULL;
+    ATEMSYS_T_PCI_SELECT_DESC_v1_0_00 oPciDesc_v1_0_00;
+    ATEMSYS_T_PCI_SELECT_DESC_v1_3_05 oPciDesc_v1_3_05;
+    ATEMSYS_T_PCI_SELECT_DESC_v1_4_12 oPciDesc_v1_4_12;
+    
+
+
 
     switch (size)
     {
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00):
     {
         dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,0,0);
-        pPciDesc_v1_0_00 = (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam;
-        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_0_00, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00)))
+        memset(&oPciDesc_v1_0_00, 0, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00));
+        if (!ACCESS_OK(VERIFY_WRITE, (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00)))
         {
-            nRetval = -EFAULT;
+            nRetVal = -EFAULT;
         }
+        nRetVal = copy_from_user(&oPciDesc_v1_0_00, (ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00));
+        if (0 != nRetVal)
+        {
+            ERR("ioctl_pci_finddevice failed: %d\n", nRetVal);
+            goto Exit;
+        }
+        nVendor   = oPciDesc_v1_0_00.nVendID;
+        nDevice   = oPciDesc_v1_0_00.nDevID;
+        nInstance = oPciDesc_v1_0_00.nInstance;
     } break;
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05):
     {
         dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,3,5);
-        pPciDesc_v1_3_05 = (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam;
-        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_3_05, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05)))
+        memset(&oPciDesc_v1_3_05, 0, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05));
+        if (!ACCESS_OK(VERIFY_WRITE, (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05)))
         {
-            nRetval = -EFAULT;
+            nRetVal = -EFAULT;
         }
+        nRetVal = copy_from_user(&oPciDesc_v1_3_05, (ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05));
+        if (0 != nRetVal)
+        {
+            ERR("ioctl_pci_finddevice failed: %d\n", nRetVal);
+            goto Exit;
+        }
+        nVendor   = oPciDesc_v1_3_05.nVendID;
+        nDevice   = oPciDesc_v1_3_05.nDevID;
+        nInstance = oPciDesc_v1_3_05.nInstance;
     } break;
     case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12):
     {
         dwAtemsysApiVersion = EC_ATEMSYSVERSION(1,4,12);
-        pPciDesc_v1_4_12 = (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam;
-        if (!ACCESS_OK(VERIFY_WRITE, pPciDesc_v1_4_12, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12)))
+        memset(&oPciDesc_v1_4_12, 0, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12));
+        if (!ACCESS_OK(VERIFY_WRITE, (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12)))
         {
-            nRetval = -EFAULT;
+            nRetVal = -EFAULT;
         }
+        nRetVal = copy_from_user(&oPciDesc_v1_4_12, (ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12));
+        if (0 != nRetVal)
+        {
+            ERR("ioctl_pci_finddevice failed: %d\n", nRetVal);
+            goto Exit;
+        }
+        nVendor   = oPciDesc_v1_4_12.nVendID;
+        nDevice   = oPciDesc_v1_4_12.nDevID;
+        nInstance = oPciDesc_v1_4_12.nInstance;
     } break;
     default:
     {
-        nRetval = -EFAULT;
-    }
-    }
-
-    if (-EFAULT == nRetval)
-    {
-        ERR("pci_find: EFAULT\n");
-        nRetval = -EFAULT;
+        nRetVal = -EIO;
+        ERR("pci_conf: Invalid parameter\n");
         goto Exit;
     }
+    }
 
-    switch (dwAtemsysApiVersion)
+    if (-EFAULT == nRetVal)
     {
-    case EC_ATEMSYSVERSION(1,0,0):
-    {
-        get_user(nVendor,  &pPciDesc_v1_0_00->nVendID);
-        get_user(nDevice,  &pPciDesc_v1_0_00->nDevID);
-        get_user(nInstance,&pPciDesc_v1_0_00->nInstance);
-    } break;
-    case EC_ATEMSYSVERSION(1,3,5):
-    {
-        get_user(nVendor,  &pPciDesc_v1_3_05->nVendID);
-        get_user(nDevice,  &pPciDesc_v1_3_05->nDevID);
-        get_user(nInstance,&pPciDesc_v1_3_05->nInstance);
-    } break;
-    case EC_ATEMSYSVERSION(1,4,12):
-    {
-        get_user(nVendor,  &pPciDesc_v1_4_12->nVendID);
-        get_user(nDevice,  &pPciDesc_v1_4_12->nDevID);
-        get_user(nInstance,&pPciDesc_v1_4_12->nInstance);
-    } break;
+        ERR("pci_find: EFAULT\n");
+        nRetVal = -EFAULT;
+        goto Exit;
     }
 
     INF("pci_find: ven 0x%x dev 0x%x nInstance %d\n", nVendor, nDevice, nInstance);
@@ -1121,7 +1122,7 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
     if (pPciDev == NULL)
     {
         WRN("pci_find: device 0x%x:0x%x:%d not found\n", nVendor, nDevice, nInstance);
-        nRetval = -ENODEV;
+        nRetVal = -ENODEV;
         goto Exit;
     }
 
@@ -1132,30 +1133,51 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
     {
     case EC_ATEMSYSVERSION(1,0,0):
     {
-        put_user((s32)pPciDev->bus->number,         &pPciDesc_v1_0_00->nPciBus);
-        put_user((s32)PCI_SLOT(pPciDev->devfn),     &pPciDesc_v1_0_00->nPciDev);
-        put_user((s32)PCI_FUNC(pPciDev->devfn),     &pPciDesc_v1_0_00->nPciFun);
+        oPciDesc_v1_0_00.nPciBus = (s32)pPciDev->bus->number;
+        oPciDesc_v1_0_00.nPciDev = (s32)PCI_SLOT(pPciDev->devfn);
+        oPciDesc_v1_0_00.nPciFun = (s32)PCI_FUNC(pPciDev->devfn);
+
+        nRetVal = copy_to_user((ATEMSYS_T_PCI_SELECT_DESC_v1_0_00*)ioctlParam, &oPciDesc_v1_0_00, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00));
+        if (0 != nRetVal)
+        {
+            ERR("ioctl_pci_finddevice failed: %d\n", nRetVal);
+            goto Exit;
+        }
     } break;
     case EC_ATEMSYSVERSION(1,3,5):
     {
-        put_user((s32)pci_domain_nr(pPciDev->bus),  &pPciDesc_v1_3_05->nPciDomain);
-        put_user((s32)pPciDev->bus->number,         &pPciDesc_v1_3_05->nPciBus);
-        put_user((s32)PCI_SLOT(pPciDev->devfn),     &pPciDesc_v1_3_05->nPciDev);
-        put_user((s32)PCI_FUNC(pPciDev->devfn),     &pPciDesc_v1_3_05->nPciFun);
+        oPciDesc_v1_3_05.nPciDomain = (s32)pci_domain_nr(pPciDev->bus);
+        oPciDesc_v1_3_05.nPciBus    = (s32)pPciDev->bus->number;
+        oPciDesc_v1_3_05.nPciDev    = (s32)PCI_SLOT(pPciDev->devfn);
+        oPciDesc_v1_3_05.nPciFun    = (s32)PCI_FUNC(pPciDev->devfn);
+
+        nRetVal = copy_to_user((ATEMSYS_T_PCI_SELECT_DESC_v1_3_05*)ioctlParam, &oPciDesc_v1_3_05, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_3_05));
+        if (0 != nRetVal)
+        {
+            ERR("ioctl_pci_finddevice failed: %d\n", nRetVal);
+            goto Exit;
+        }
     } break;
     case EC_ATEMSYSVERSION(1,4,12):
     {
-        put_user((s32)pci_domain_nr(pPciDev->bus),  &pPciDesc_v1_4_12->nPciDomain);
-        put_user((s32)pPciDev->bus->number,         &pPciDesc_v1_4_12->nPciBus);
-        put_user((s32)PCI_SLOT(pPciDev->devfn),     &pPciDesc_v1_4_12->nPciDev);
-        put_user((s32)PCI_FUNC(pPciDev->devfn),     &pPciDesc_v1_4_12->nPciFun);
+        oPciDesc_v1_4_12.nPciDomain = (s32)pci_domain_nr(pPciDev->bus);
+        oPciDesc_v1_4_12.nPciBus    = (s32)pPciDev->bus->number;
+        oPciDesc_v1_4_12.nPciDev    = (s32)PCI_SLOT(pPciDev->devfn);
+        oPciDesc_v1_4_12.nPciFun    = (s32)PCI_FUNC(pPciDev->devfn);
+
+        nRetVal = copy_to_user((ATEMSYS_T_PCI_SELECT_DESC_v1_4_12*)ioctlParam, &oPciDesc_v1_4_12, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_4_12));
+        if (0 != nRetVal)
+        {
+            ERR("ioctl_pci_finddevice failed: %d\n", nRetVal);
+            goto Exit;
+        }
     } break;
     }
 
-    nRetval = 0;
+    nRetVal = 0;
 
 Exit:
-    return nRetval;
+    return nRetVal;
 }
 #endif /* CONFIG_PCI */
 
@@ -1163,11 +1185,11 @@ Exit:
 /*
  * Lookup Nth (0: first) compatible device tree node with "interrupts" property present.
  */
-static struct device_node * atemsys_of_lookup_intnode(const char *compatible, int deviceIdx)
+static struct device_node * atemsys_of_lookup_intnode(const char* compatible, int deviceIdx)
 {
-   struct device_node *device = NULL;
-   struct device_node *child = NULL;
-   struct device_node *tmp = NULL;
+   struct device_node* device = NULL;
+   struct device_node* child = NULL;
+   struct device_node* tmp = NULL;
    int devCnt;
 
    /* Lookup Nth device tree node */
@@ -1204,10 +1226,10 @@ static struct device_node * atemsys_of_lookup_intnode(const char *compatible, in
  * equal to compatible. Search until the Nth device is found. Then
  * map the Nth interrupt (given by intIdx) with irq_of_parse_and_map().
  */
-static unsigned atemsys_of_map_irq_to_virq(const char *compatible, int deviceIdx, int intIdx)
+static unsigned atemsys_of_map_irq_to_virq(const char* compatible, int deviceIdx, int intIdx)
 {
    unsigned virq;
-   struct device_node *device = NULL;
+   struct device_node* device = NULL;
 
    /* Lookup Nth device */
    device = atemsys_of_lookup_intnode(compatible, deviceIdx);
@@ -1276,7 +1298,7 @@ static unsigned int atemsysDtDriver_of_map_irq_to_virq(ATEMSYS_T_DEVICE_DESC* pD
 static bool atemsys_irq_is_level(unsigned int irq_id)
 {
      bool irq_is_level = true;
-     struct irq_data *irq_data = NULL;
+     struct irq_data* irq_data = NULL;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,11,1))
     {
@@ -1284,7 +1306,7 @@ static bool atemsys_irq_is_level(unsigned int irq_id)
     }
 #else
     {
-        struct irq_desc *desc;
+        struct irq_desc* desc;
         desc = irq_to_desc(irq_id);
         if (desc)
         {
@@ -1303,9 +1325,9 @@ static bool atemsys_irq_is_level(unsigned int irq_id)
 
 static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlParam)
 {
-    int nRetval = -EIO;
+    int nRetVal = -EIO;
     int nRc;
-    ATEMSYS_T_IRQ_DESC *pIrqDesc = NULL;
+    ATEMSYS_T_IRQ_DESC* pIrqDesc = NULL;
     unsigned int irq = 0;
 
 #if (defined CONFIG_PCI)
@@ -1343,7 +1365,7 @@ static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioct
             if ((irq = atemsysDtDriver_of_map_irq_to_virq(pDevDesc, ioctlParam)) == NO_IRQ)
 #endif
             {
-                nRetval = -EPERM;
+                nRetVal = -EPERM;
                 goto Exit;
             }
         }
@@ -1374,14 +1396,14 @@ static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioct
     if (nRc)
     {
         ERR("ioctl_int_connect: rtdm_irq_request() for IRQ %d returned error: %d\n", irq, nRc);
-        nRetval = nRc;
+        nRetVal = nRc;
         goto Exit;
     }
     nRc = rtdm_irq_enable(&pIrqDesc->irq_handle);
     if (nRc)
     {
         ERR("ioctl_int_connect: rtdm_irq_enable() for IRQ %d returned error: %d\n", irq, nRc);
-        nRetval = nRc;
+        nRetVal = nRc;
         goto Exit;
     }
 #else
@@ -1393,7 +1415,7 @@ static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioct
     if (nRc)
     {
         ERR("ioctl_int_connect: request_irq (IRQ %d) failed. Err %d\n", irq, nRc);
-        nRetval = -EPERM;
+        nRetVal = -EPERM;
         goto Exit;
     }
 #endif /* CONFIG_XENO_COBALT */
@@ -1409,48 +1431,54 @@ static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioct
     INF("intcon: IRQ %d connected\n", irq);
 #endif
 
-    nRetval = 0;
+    nRetVal = 0;
 Exit:
-    return nRetval;
+    return nRetVal;
 }
 
 static int ioctl_intinfo(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlParam)
 {
-   int nRetval = -EIO;
-   ATEMSYS_T_INT_INFO *pIntInfo = (ATEMSYS_T_INT_INFO *) ioctlParam;
-
+   int nRetVal = -EIO;
 #if (defined CONFIG_XENO_COBALT)
+   ATEMSYS_T_INT_INFO* pIntInfo = (ATEMSYS_T_INT_INFO*) ioctlParam;
    struct rtdm_fd* fd = rtdm_private_to_fd(pDevDesc);
    if (rtdm_fd_is_user(fd))
    {
-      nRetval = rtdm_safe_copy_to_user(fd, &pIntInfo->dwInterrupt, &pDevDesc->irqDesc.irq, sizeof(__u32));
-      if (nRetval)
+      nRetVal = rtdm_safe_copy_to_user(fd, &pIntInfo->dwInterrupt, &pDevDesc->irqDesc.irq, sizeof(__u32));
+      if (nRetVal)
       {
-          ERR("ioctl_intinfo failed: %d\n", nRetval);
-          goto Exit;
+         ERR("ioctl_intinfo failed: %d\n", nRetVal);
+         goto Exit;
       }
    }
 #else
-   if (!ACCESS_OK(VERIFY_WRITE, pIntInfo, sizeof(ATEMSYS_T_INT_INFO)))
+   ATEMSYS_T_INT_INFO oIntInfo;
+   memset(&oIntInfo, 0, sizeof(ATEMSYS_T_INT_INFO));
+   if (!ACCESS_OK(VERIFY_WRITE, (ATEMSYS_T_INT_INFO*)ioctlParam, sizeof(ATEMSYS_T_INT_INFO)))
    {
       ERR("ioctl_intinfo: EFAULT\n");
-      nRetval = -EFAULT;
+      nRetVal = -EFAULT;
       goto Exit;
    }
-
-   nRetval = put_user(pDevDesc->irqDesc.irq, &pIntInfo->dwInterrupt);
+   oIntInfo.dwInterrupt = pDevDesc->irqDesc.irq;
+   nRetVal = copy_to_user((ATEMSYS_T_INT_INFO*)ioctlParam, &oIntInfo, sizeof(ATEMSYS_T_INT_INFO));
+   if (0 != nRetVal)
+   {
+      ERR("ioctl_intinfo failed: %d\n", nRetVal);
+      goto Exit;
+   }
 #endif /* CONFIG_XENO_COBALT */
 
 Exit:
-   return nRetval;
+    return nRetVal;
 }
 
 
 static int dev_int_disconnect(ATEMSYS_T_DEVICE_DESC* pDevDesc)
 {
-   int nRetval = -EIO;
+   int nRetVal = -EIO;
    int nCnt;
-   ATEMSYS_T_IRQ_DESC *pIrqDesc = &(pDevDesc->irqDesc);
+   ATEMSYS_T_IRQ_DESC* pIrqDesc = &(pDevDesc->irqDesc);
 
 #if (defined CONFIG_XENO_COBALT)
       int nRc;
@@ -1460,7 +1488,7 @@ static int dev_int_disconnect(ATEMSYS_T_DEVICE_DESC* pDevDesc)
          if (nRc)
          {
             ERR("dev_int_disconnect: rtdm_irq_disable() for IRQ %d returned error: %d\n", (u32) pIrqDesc->irq, nRc);
-            nRetval = nRc;
+            nRetVal = nRc;
             goto Exit;
          }
 
@@ -1468,7 +1496,7 @@ static int dev_int_disconnect(ATEMSYS_T_DEVICE_DESC* pDevDesc)
          if (nRc)
          {
             ERR("dev_int_disconnect: rtdm_irq_free() for IRQ %d returned error: %d\n", (u32) pIrqDesc->irq, nRc);
-            nRetval = nRc;
+            nRetVal = nRc;
             goto Exit;
          }
 
@@ -1496,12 +1524,12 @@ static int dev_int_disconnect(ATEMSYS_T_DEVICE_DESC* pDevDesc)
          wake_up(&pIrqDesc->q);
       }
 #endif /* CONFIG_XENO_COBALT */
-   nRetval = 0;
+   nRetVal = 0;
 
 #if (defined CONFIG_XENO_COBALT)
 Exit:
 #endif
-   return nRetval;
+   return nRetVal;
 }
 
 #if (defined CONFIG_PCI)
@@ -1542,7 +1570,7 @@ static void dev_pci_release(ATEMSYS_T_DEVICE_DESC* pDevDesc)
 #endif /* CONFIG_PCI */
 
 #if (defined CONFIG_XENO_COBALT)
-static int dev_interrupt_handler(rtdm_irq_t *irq_handle)
+static int dev_interrupt_handler(rtdm_irq_t* irq_handle)
 {
     ATEMSYS_T_DEVICE_DESC* pDevDesc = rtdm_irq_get_arg(irq_handle, ATEMSYS_T_DEVICE_DESC);
     ATEMSYS_T_IRQ_DESC* pIrqDesc = NULL;
@@ -1560,9 +1588,9 @@ static int dev_interrupt_handler(rtdm_irq_t *irq_handle)
     return RTDM_IRQ_HANDLED;
 }
 #else
-static irqreturn_t dev_interrupt_handler(int nIrq, void *pParam)
+static irqreturn_t dev_interrupt_handler(int nIrq, void* pParam)
 {
-   ATEMSYS_T_DEVICE_DESC* pDevDesc = (ATEMSYS_T_DEVICE_DESC *) pParam;
+   ATEMSYS_T_DEVICE_DESC* pDevDesc = (ATEMSYS_T_DEVICE_DESC*) pParam;
    ATEMSYS_T_IRQ_DESC* pIrqDesc = &(pDevDesc->irqDesc);
 
    /* Disable IRQ on (A)PIC to prevent interrupt trashing if the ISR is left.
@@ -1586,27 +1614,27 @@ static irqreturn_t dev_interrupt_handler(int nIrq, void *pParam)
  * This is called whenever a process attempts to open the device file
  */
 #if (defined CONFIG_XENO_COBALT)
-static int device_open(struct rtdm_fd * fd, int oflags)
+static int device_open(struct rtdm_fd* fd, int oflags)
 {
-   ATEMSYS_T_DEVICE_DESC* pDevDesc = (ATEMSYS_T_DEVICE_DESC *) rtdm_fd_to_private(fd);
+   ATEMSYS_T_DEVICE_DESC* pDevDesc = (ATEMSYS_T_DEVICE_DESC*) rtdm_fd_to_private(fd);
    memset(pDevDesc, 0, sizeof(ATEMSYS_T_DEVICE_DESC));
    rtdm_event_init(&pDevDesc->irqDesc.irq_event, 0);
    INF("device_open %s\n", rtdm_fd_device(fd)->label);
 #else
-static int device_open(struct inode *inode, struct file *file)
+static int device_open(struct inode* inode, struct file* file)
 {
    ATEMSYS_T_DEVICE_DESC* pDevDesc;
 
    INF("device_open(0x%px)\n", file);
 
    /* create device descriptor */
-   pDevDesc = (ATEMSYS_T_DEVICE_DESC *) kzalloc(sizeof(ATEMSYS_T_DEVICE_DESC), GFP_KERNEL);
+   pDevDesc = (ATEMSYS_T_DEVICE_DESC*) kzalloc(sizeof(ATEMSYS_T_DEVICE_DESC), GFP_KERNEL);
    if (pDevDesc == NULL)
    {
       return -ENOMEM;
    }
 
-   file->private_data = (void *) pDevDesc;
+   file->private_data = (void*) pDevDesc;
 
    /* Add descriptor to descriptor list */
    mutex_lock(&S_mtx);
@@ -1622,12 +1650,12 @@ static int device_open(struct inode *inode, struct file *file)
 }
 
 #if (defined CONFIG_XENO_COBALT)
-static void device_release(struct rtdm_fd * fd)
+static void device_release(struct rtdm_fd* fd)
 {
-    ATEMSYS_T_DEVICE_DESC* pDevDesc = (ATEMSYS_T_DEVICE_DESC *) rtdm_fd_to_private(fd);
+    ATEMSYS_T_DEVICE_DESC* pDevDesc = (ATEMSYS_T_DEVICE_DESC*) rtdm_fd_to_private(fd);
     ATEMSYS_T_IRQ_DESC* pIrqDesc = NULL;
 #else
-static int device_release(struct inode *inode, struct file *file)
+static int device_release(struct inode* inode, struct file* file)
 {
    ATEMSYS_T_DEVICE_DESC* pDevDesc = file->private_data;
 #endif /* CONFIG_XENO_COBALT */
@@ -1681,9 +1709,9 @@ static int device_release(struct inode *inode, struct file *file)
  * device file attempts to read from it.
  */
  #if (defined CONFIG_XENO_COBALT)
-static ssize_t device_read(struct rtdm_fd * fd, void *bufp, size_t len)
+static ssize_t device_read(struct rtdm_fd* fd, void* bufp, size_t len)
 {
-   ATEMSYS_T_DEVICE_DESC*   pDevDesc = (ATEMSYS_T_DEVICE_DESC *) rtdm_fd_to_private(fd);
+   ATEMSYS_T_DEVICE_DESC*   pDevDesc = (ATEMSYS_T_DEVICE_DESC*) rtdm_fd_to_private(fd);
    ATEMSYS_T_IRQ_DESC*      pIrqDesc = NULL;
    s32 nPending;
    int ret=0;
@@ -1736,13 +1764,13 @@ static ssize_t device_read(struct rtdm_fd * fd, void *bufp, size_t len)
 }
 #else
 static ssize_t device_read(
-      struct file *filp,   /* see include/linux/fs.h   */
-      char __user *bufp,   /* buffer to be filled with data */
+      struct file* filp,   /* see include/linux/fs.h   */
+      char __user* bufp,   /* buffer to be filled with data */
       size_t       len,    /* length of the buffer     */
-      loff_t      *ppos)
+      loff_t*      ppos)
 {
 
-   ATEMSYS_T_DEVICE_DESC*   pDevDesc = (ATEMSYS_T_DEVICE_DESC *) filp->private_data;
+   ATEMSYS_T_DEVICE_DESC*   pDevDesc = (ATEMSYS_T_DEVICE_DESC*) filp->private_data;
    ATEMSYS_T_IRQ_DESC*      pIrqDesc = NULL;
    s32 nPending;
    wait_queue_entry_t wait;
@@ -1816,20 +1844,20 @@ static ssize_t device_read(
  * character device mmap method
  */
 #if (defined CONFIG_XENO_COBALT)
-static int device_mmap(struct rtdm_fd * fd, struct vm_area_struct *vma)
+static int device_mmap(struct rtdm_fd* fd, struct vm_area_struct* vma)
 {
-   ATEMSYS_T_DEVICE_DESC*   pDevDesc = (ATEMSYS_T_DEVICE_DESC *) rtdm_fd_to_private(fd);
+   ATEMSYS_T_DEVICE_DESC*   pDevDesc = (ATEMSYS_T_DEVICE_DESC*) rtdm_fd_to_private(fd);
 #else
-static int device_mmap(struct file *filp, struct vm_area_struct *vma)
+static int device_mmap(struct file* filp, struct vm_area_struct* vma)
 {
    ATEMSYS_T_DEVICE_DESC*   pDevDesc = filp->private_data;
 #endif /* CONFIG_XENO_COBALT */
 
    int         nRet = -EIO;
    u32         dwLen;
-   void       *pVa = NULL;
+   void*       pVa = NULL;
    dma_addr_t  dmaAddr;
-   ATEMSYS_T_MMAP_DESC  *pMmapNode;
+   ATEMSYS_T_MMAP_DESC* pMmapNode;
 #if (defined CONFIG_PCI)
    int         i;
    unsigned long ioBase;
@@ -1837,7 +1865,7 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
 #endif
 
    DBG("mmap: vm_pgoff 0x%px vm_start = 0x%px vm_end = 0x%px\n",
-         (void *) vma->vm_pgoff, (void *) vma->vm_start, (void *) vma->vm_end);
+         (void*) vma->vm_pgoff, (void*) vma->vm_start, (void*) vma->vm_end);
 
    if (pDevDesc == NULL)
    {
@@ -1923,15 +1951,15 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
       }
 
       INF("mmap: mapped IO memory, Phys:0x%llx UVirt:0x%px Size:%u\n",
-           (u64) (((u64)vma->vm_pgoff) << PAGE_SHIFT), (void *) vma->vm_start, dwLen);
+           (u64) (((u64)vma->vm_pgoff) << PAGE_SHIFT), (void*) vma->vm_start, dwLen);
 
 #if (defined DEBUG_IOREMAP)
       {
-        volatile unsigned char *ioaddr;
+        volatile unsigned char* ioaddr;
         unsigned long ioBase = vma->vm_pgoff << PAGE_SHIFT;
-        INF("try to remap %p\n", (void *)ioBase);
+        INF("try to remap %p\n", (void*)ioBase);
         /* DEBUG Map device's IO memory into kernel space pagetables */
-        ioaddr = (volatile unsigned char *) ioremap_nocache(ioBase, dwLen);
+        ioaddr = (volatile unsigned char*) ioremap_nocache(ioBase, dwLen);
         if (ioaddr == NULL)
         {
           ERR("ioremap_nocache failed\n");
@@ -2014,6 +2042,7 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
        */
 
       /* map the whole physically contiguous area in one piece */
+#if (!(defined ATEMSYS_LEGACY_DMA) && (LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0))) || ((defined ATEMSYS_LEGACY_DMA) && (0 != ATEMSYS_LEGACY_DMA))
       {
          unsigned int dwDmaPfn = 0;
 
@@ -2030,7 +2059,7 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
   #else
          if ((NULL != pDevDesc->pPcidev) && (NULL != pDevDesc->pPcidev->dev.dma_range_map))
          {
-            const struct bus_dma_region *map = pDevDesc->pPcidev->dev.dma_range_map;
+            const struct bus_dma_region* map = pDevDesc->pPcidev->dev.dma_range_map;
             unsigned long dma_pfn_offset = ((map->offset) >> PAGE_SHIFT);
             dwDmaPfn = dwDmaPfn + dma_pfn_offset;
             INF("mmap: remap_pfn_range dma pfn 0x%x, offset pfn 0x%x\n",
@@ -2057,17 +2086,49 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
             goto ExitAndFree;
          }
       }
+#else /* #if (defined ATEMSYS_LEGACY_DMA) */
+      {
+         struct device* pDmaDev = NULL;
+
+ #if (defined CONFIG_PCI)
+         if (NULL != pDevDesc->pPcidev)
+         {
+            pDmaDev = &pDevDesc->pPcidev->dev;
+         }
+         else
+ #endif /* (defined CONFIG_PCI) */
+         if (NULL != pDevDesc->pPlatformDev)
+         {
+            pDmaDev = &pDevDesc->pPlatformDev->dev;
+         }
+
+#if ((defined __arm__) || (defined __aarch64__)) && (!defined ATEMSYS_DONT_SET_NONCACHED_DMA_PAGEPROTECTIONLFAG)
+         vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+#endif
+            /* for Platform Device */
+         nRet = dma_mmap_coherent(pDmaDev,
+                                     vma,       /* user space mapping                   */
+                                     pVa,       /* kernel virtual address               */
+                                     dmaAddr,   /* Phys address                         */
+                                     dwLen);    /* size         */
+         if (nRet < 0)
+         {
+            ERR("dma_mmap_coherent failed\n");
+            goto ExitAndFree;
+         }
+      }
+#endif /* #if (defined ATEMSYS_LEGACY_DMA) */
 
       /* Write the physical DMA address into the first 4 bytes of allocated memory */
       /* If there is 64 bit DMA support write upper part into the the next 4 byte  */
       if (pDevDesc->bSupport64BitDma)
       {
-         ((u32 *) pVa)[0] = (u32)((u64)dmaAddr & 0xFFFFFFFF);
-         ((u32 *) pVa)[1] = (u32)(((u64)dmaAddr >> 32) & 0xFFFFFFFF);
+         ((u32*) pVa)[0] = (u32)((u64)dmaAddr & 0xFFFFFFFF);
+         ((u32*) pVa)[1] = (u32)(((u64)dmaAddr >> 32) & 0xFFFFFFFF);
       }
       else
       {
-         *((u32 *) pVa) = (u32) dmaAddr;
+         *((u32*) pVa) = (u32) dmaAddr;
       }
 
       /* Some housekeeping to be able to cleanup the allocated memory later */
@@ -2089,7 +2150,7 @@ static int device_mmap(struct file *filp, struct vm_area_struct *vma)
       vma->vm_private_data = pMmapNode;
 
       INF("mmap: mapped DMA memory, Phys:0x%px KVirt:0x%px UVirt:0x%px Size:%u\n",
-             (void *)(unsigned long)dmaAddr, (void *)pVa, (void *)vma->vm_start, dwLen);
+             (void*)(unsigned long)dmaAddr, (void*)pVa, (void*)vma->vm_start, dwLen);
    }
 
    nRet = 0;
@@ -2137,20 +2198,20 @@ Exit:
  *
  */
 #if (defined CONFIG_XENO_COBALT)
-static int atemsys_ioctl(struct rtdm_fd * fd, unsigned int cmd, void __user *user_arg)
+static int atemsys_ioctl(struct rtdm_fd* fd, unsigned int cmd, void __user* user_arg)
 {
-   ATEMSYS_T_DEVICE_DESC*   pDevDesc = (ATEMSYS_T_DEVICE_DESC *) rtdm_fd_to_private(fd);
+   ATEMSYS_T_DEVICE_DESC*   pDevDesc = (ATEMSYS_T_DEVICE_DESC*) rtdm_fd_to_private(fd);
    unsigned long   arg = (unsigned long) user_arg;
 #else
 static long atemsys_ioctl(
-      struct file *file,
+      struct file* file,
       unsigned int cmd,
       unsigned long arg)
 {
    ATEMSYS_T_DEVICE_DESC*   pDevDesc = file->private_data;
 #endif /* CONFIG_XENO_COBALT */
 
-   int              nRetval = -EFAULT;
+   int nRetVal = -EFAULT;
 
    if (pDevDesc == NULL)
    {
@@ -2168,8 +2229,8 @@ static long atemsys_ioctl(
       case ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_3_05:
       case ATEMSYS_IOCTL_PCI_FIND_DEVICE_v1_4_12:
       {
-         nRetval = ioctl_pci_finddevice(pDevDesc, arg, _IOC_SIZE(cmd)); /* size determines version */
-         if (0 != nRetval)
+         nRetVal = ioctl_pci_finddevice(pDevDesc, arg, _IOC_SIZE(cmd)); /* size determines version */
+         if (0 != nRetVal)
          {
            /* be quiet. ioctl may fail */
            goto Exit;
@@ -2179,10 +2240,10 @@ static long atemsys_ioctl(
       case ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_3_05:
       case ATEMSYS_IOCTL_PCI_CONF_DEVICE_v1_4_12:
       {
-         nRetval = ioctl_pci_configure_device(pDevDesc, arg, _IOC_SIZE(cmd)); /* size determines version */
-         if (0 != nRetval)
+         nRetVal = ioctl_pci_configure_device(pDevDesc, arg, _IOC_SIZE(cmd)); /* size determines version */
+         if (0 != nRetVal)
          {
-            ERR("ioctl ATEMSYS_IOCTL_PCI_CONF_DEVICE failed: %d\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_PCI_CONF_DEVICE failed: %d\n", nRetVal);
             goto Exit;
          }
       } break;
@@ -2200,18 +2261,18 @@ static long atemsys_ioctl(
 #endif
       case ATEMSYS_IOCTL_INT_CONNECT:
       {
-         nRetval = ioctl_int_connect(pDevDesc, arg);
-         if (0 != nRetval)
+         nRetVal = ioctl_int_connect(pDevDesc, arg);
+         if (0 != nRetVal)
          {
-            ERR("ioctl ATEMSYS_IOCTL_INT_CONNECT failed: %d\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_INT_CONNECT failed: %d\n", nRetVal);
             goto Exit;
          }
       } break;
 
       case ATEMSYS_IOCTL_INT_DISCONNECT:
       {
-         nRetval = dev_int_disconnect(pDevDesc);
-         if (0 != nRetval)
+         nRetVal = dev_int_disconnect(pDevDesc);
+         if (0 != nRetVal)
          {
             /* be quiet. ioctl may fail */
             goto Exit;
@@ -2220,10 +2281,10 @@ static long atemsys_ioctl(
 
       case ATEMSYS_IOCTL_INT_INFO:
       {
-         nRetval = ioctl_intinfo(pDevDesc, arg);
-         if (0 != nRetval)
+         nRetVal = ioctl_intinfo(pDevDesc, arg);
+         if (0 != nRetVal)
          {
-            ERR("ioctl ATEMSYS_IOCTL_INT_INFO failed: %d\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_INT_INFO failed: %d\n", nRetVal);
             goto Exit;
          }
       } break;
@@ -2233,14 +2294,14 @@ static long atemsys_ioctl(
          __u32 dwVersion = USE_ATEMSYS_API_VERSION;
 
 #if (defined CONFIG_XENO_COBALT)
-         nRetval = rtdm_safe_copy_to_user(fd, user_arg, &dwVersion, sizeof(__u32));
+         nRetVal = rtdm_safe_copy_to_user(fd, user_arg, &dwVersion, sizeof(__u32));
 #else
-         nRetval = put_user(dwVersion, (__u32*)arg);
+         nRetVal = put_user(dwVersion, (__u32*)arg);
 #endif /* CONFIG_XENO_COBALT */
 
-         if (0 != nRetval)
+         if (0 != nRetVal)
          {
-            ERR("ioctl ATEMSYS_IOCTL_MOD_GETVERSION failed: %d\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_MOD_GETVERSION failed: %d\n", nRetVal);
             goto Exit;
          }
       } break;
@@ -2250,9 +2311,9 @@ static long atemsys_ioctl(
          __u32 dwApiVersion = 0;
 
 #if (defined CONFIG_XENO_COBALT)
-         nRetval = rtdm_safe_copy_from_user(fd, &dwApiVersion, user_arg, sizeof(__u32));
+         nRetVal = rtdm_safe_copy_from_user(fd, &dwApiVersion, user_arg, sizeof(__u32));
 #else
-         nRetval = get_user(dwApiVersion, (__u32*)arg);
+         nRetVal = get_user(dwApiVersion, (__u32*)arg);
 #endif
 
          /* activate supported features */
@@ -2261,9 +2322,9 @@ static long atemsys_ioctl(
             pDevDesc->bSupport64BitDma = true;
          }
 
-         if (0 != nRetval)
+         if (0 != nRetVal)
          {
-            ERR("ioctl ATEMSYS_IOCTL_MOD_SETVERSION failed: %d\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_MOD_SETVERSION failed: %d\n", nRetVal);
             goto Exit;
          }
       } break;
@@ -2271,55 +2332,55 @@ static long atemsys_ioctl(
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
     case ATEMSYS_IOCTL_GET_MAC_INFO:
     {
-        nRetval = GetMacInfoIoctl(pDevDesc, arg);
-        if (0 != nRetval)
+        nRetVal = GetMacInfoIoctl(pDevDesc, arg);
+        if (0 != nRetVal)
         {
-            ERR("ioctl ATEMSYS_IOCTL_GET_MAC_INFO failed: 0x%x\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_GET_MAC_INFO failed: 0x%x\n", nRetVal);
             goto Exit;
         }
     } break;
     case ATEMSYS_IOCTL_PHY_START_STOP:
     {
-        nRetval = PhyStartStopIoctl(arg);
-        if (0 != nRetval)
+        nRetVal = PhyStartStopIoctl(arg);
+        if (0 != nRetVal)
         {
-            ERR("ioctl ATEMSYS_IOCTL_PHY_START_STOP failed: %d\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_PHY_START_STOP failed: %d\n", nRetVal);
             goto Exit;
         }
     } break;
     case ATEMSYS_IOCTL_GET_MDIO_ORDER:
     {
-        nRetval = GetMdioOrderIoctl(arg);
-        if (0 != nRetval)
+        nRetVal = GetMdioOrderIoctl(arg);
+        if (0 != nRetVal)
         {
-            ERR("ioctl ATEMSYS_IOCTL_GET_MDIO_ORDER failed: %d\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_GET_MDIO_ORDER failed: %d\n", nRetVal);
             goto Exit;
         }
     } break;
     case ATEMSYS_IOCTL_RETURN_MDIO_ORDER:
     {
-        nRetval = ReturnMdioOrderIoctl(arg);
-        if (0 != nRetval)
+        nRetVal = ReturnMdioOrderIoctl(arg);
+        if (0 != nRetVal)
         {
-            ERR("ioctl ATEMSYS_IOCTL_RETURN_MDIO_ORDER failed: %d\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_RETURN_MDIO_ORDER failed: %d\n", nRetVal);
             goto Exit;
         }
     } break;
     case ATEMSYS_IOCTL_GET_PHY_INFO:
     {
-        nRetval = GetPhyInfoIoctl(arg);
-        if (0 != nRetval)
+        nRetVal = GetPhyInfoIoctl(arg);
+        if (0 != nRetVal)
         {
-            ERR("ioctl ATEMSYS_IOCTL_GET_PHY_INFO failed: %d\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_GET_PHY_INFO failed: %d\n", nRetVal);
             goto Exit;
         }
       } break;
     case ATEMSYS_IOCTL_PHY_RESET:
     {
-        nRetval = PhyResetIoctl(arg);
-        if (0 != nRetval)
+        nRetVal = PhyResetIoctl(arg);
+        if (0 != nRetVal)
         {
-            ERR("ioctl ATEMSYS_IOCTL_PHY_RESET failed: %d\n", nRetval);
+            ERR("ioctl ATEMSYS_IOCTL_PHY_RESET failed: %d\n", nRetVal);
             goto Exit;
         }
     } break;
@@ -2327,15 +2388,15 @@ static long atemsys_ioctl(
 
       default:
       {
-         nRetval = -EOPNOTSUPP;
+         nRetVal = -EOPNOTSUPP;
          goto Exit;
       } /* no break */
    }
 
-   nRetval = DRIVER_SUCCESS;
+   nRetVal = DRIVER_SUCCESS;
 
 Exit:
-   return nRetval;
+   return nRetVal;
 }
 
 #if (defined CONFIG_COMPAT) && !(defined CONFIG_XENO_COBALT)
@@ -2343,8 +2404,8 @@ Exit:
  * ioctl processing for 32 bit process on 64 bit system
  */
 static long atemsys_compat_ioctl(
-      struct file *file,
-      unsigned int cmd,
+      struct file*  file,
+      unsigned int  cmd,
       unsigned long arg)
 {
    return atemsys_ioctl(file, cmd, (unsigned long) compat_ptr(arg));
@@ -2399,21 +2460,19 @@ struct file_operations Fops = {
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
 static int GetMacInfoIoctl(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlParam)
 {
-    ATEMSYS_T_MAC_INFO* pInfoUserSpace = (ATEMSYS_T_MAC_INFO *)ioctlParam;
-    ATEMSYS_T_MAC_INFO Info;
-    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate  = NULL;
-    unsigned int dwRetVal = 0;
+    ATEMSYS_T_MAC_INFO oInfo;
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
+    unsigned int dwRetVal = 0x98110000; /* EC_E_ERROR */
     int nRetVal = -1;
-    int nRes = -1;
     unsigned int i = 0;
 
-    for (i = 0; i < EC_LINKOS_IDENT_MAX_LEN; i++)
+    memset(&oInfo, 0, sizeof(ATEMSYS_T_MAC_INFO));
+    nRetVal = copy_from_user(&oInfo, (ATEMSYS_T_MAC_INFO *)ioctlParam, sizeof(ATEMSYS_T_MAC_INFO));
+    if (0 != nRetVal)
     {
-        nRes = get_user(Info.szIdent[i], &pInfoUserSpace->szIdent[i]);
-        if (0 != nRes) { nRetVal = nRes; goto Exit; }
+        ERR("GetMacInfoIoctl failed: %d\n", nRetVal);
+        goto Exit;
     }
-    nRes = get_user(Info.dwInstance, &pInfoUserSpace->dwInstance);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
 
     for (i = 0; i < ATEMSYS_MAX_NUMBER_DRV_INSTANCES; i++)
     {
@@ -2421,8 +2480,8 @@ static int GetMacInfoIoctl(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlP
         {
             continue;
         }
-        if ((0 == strcmp(S_apDrvDescPrivate[i]->MacInfo.szIdent, Info.szIdent)) &&
-            (S_apDrvDescPrivate[i]->MacInfo.dwInstance == Info.dwInstance))
+        if ((0 == strcmp(S_apDrvDescPrivate[i]->MacInfo.szIdent, oInfo.szIdent)) &&
+            (S_apDrvDescPrivate[i]->MacInfo.dwInstance == oInfo.dwInstance))
         {
             pDrvDescPrivate = S_apDrvDescPrivate[i];
             break;
@@ -2438,29 +2497,14 @@ static int GetMacInfoIoctl(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlP
             goto Exit;
         }
 
-        nRes = put_user(pDrvDescPrivate->MacInfo.qwRegAddr,  &pInfoUserSpace->qwRegAddr);
-        if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-        nRes = put_user(pDrvDescPrivate->MacInfo.dwRegSize,  &pInfoUserSpace->dwRegSize);
-        if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-        nRes |= put_user(pDrvDescPrivate->MacInfo.dwStatus,  &pInfoUserSpace->dwStatus);
-        if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-        nRes |= put_user(pDrvDescPrivate->MacInfo.ePhyMode,  &pInfoUserSpace->ePhyMode);
-        if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-        nRes |= put_user(pDrvDescPrivate->MacInfo.dwIndex,   &pInfoUserSpace->dwIndex);
-        if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-        nRes |= put_user(pDrvDescPrivate->MacInfo.bNoMdioBus,&pInfoUserSpace->bNoMdioBus);
-        if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-        nRes |= put_user(pDrvDescPrivate->MacInfo.dwPhyAddr, &pInfoUserSpace->dwPhyAddr);
-        if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-        nRes |= put_user(pDrvDescPrivate->MacInfo.bPhyResetSupported, &pInfoUserSpace->bPhyResetSupported);
-        if (0 != nRes) { nRetVal = nRes; goto Exit; }
+        oInfo.qwRegAddr            = pDrvDescPrivate->MacInfo.qwRegAddr;
+        oInfo.dwRegSize            = pDrvDescPrivate->MacInfo.dwRegSize;
+        oInfo.dwStatus             = pDrvDescPrivate->MacInfo.dwStatus;
+        oInfo.ePhyMode             = pDrvDescPrivate->MacInfo.ePhyMode;
+        oInfo.dwIndex              = pDrvDescPrivate->MacInfo.dwIndex;
+        oInfo.bNoMdioBus           = pDrvDescPrivate->MacInfo.bNoMdioBus;
+        oInfo.dwPhyAddr            = pDrvDescPrivate->MacInfo.dwPhyAddr;
+        oInfo.bPhyResetSupported   = pDrvDescPrivate->MacInfo.bPhyResetSupported;
 
         /* save descriptor of callee for cleanup on device_release */
         pDrvDescPrivate->pDevDesc = pDevDesc;
@@ -2474,52 +2518,45 @@ static int GetMacInfoIoctl(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlP
     {
         dwRetVal = 0x9811000C; /* EC_E_NOTFOUND */
     }
+
     nRetVal = 0;
-
 Exit:
-    if (0 == nRetVal)
+    oInfo.dwErrorCode = dwRetVal;
+    nRetVal = copy_to_user((ATEMSYS_T_MAC_INFO *)ioctlParam, &oInfo, sizeof(ATEMSYS_T_MAC_INFO));
+    if (0 != nRetVal)
     {
-        put_user(dwRetVal ,&pInfoUserSpace->dwErrorCode);
+        ERR("GetMacInfoIoctl failed: %d\n", nRetVal);
     }
-    else
-    {
-        put_user(0x98110000 /* EC_E_ERROR */ ,&pInfoUserSpace->dwErrorCode);
-    }
-
     return nRetVal;
 }
 
 static int PhyStartStopIoctl( unsigned long ioctlParam)
 {
-    ATEMSYS_T_PHY_START_STOP_INFO* pPhyStartStopInfoUserSpace = (ATEMSYS_T_PHY_START_STOP_INFO *)ioctlParam;
-    ATEMSYS_T_PHY_START_STOP_INFO PhyStartStopInfo;
+    ATEMSYS_T_PHY_START_STOP_INFO oPhyStartStopInfo;
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
-    unsigned int dwRetVal = 0;
+    unsigned int dwRetVal = 0x98110000; /* EC_E_ERROR */
     int nRetVal = -1;
-    int nRes = -1;
-
-
-    nRes =  get_user(PhyStartStopInfo.dwIndex, &pPhyStartStopInfoUserSpace->dwIndex);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-    nRes = get_user(PhyStartStopInfo.bStart,  &pPhyStartStopInfoUserSpace->bStart);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-    if ((PhyStartStopInfo.dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES))
+    memset(&oPhyStartStopInfo, 0, sizeof(ATEMSYS_T_PHY_START_STOP_INFO));
+    nRetVal = copy_from_user(&oPhyStartStopInfo, (ATEMSYS_T_PHY_START_STOP_INFO *)ioctlParam, sizeof(ATEMSYS_T_PHY_START_STOP_INFO));
+    if (0 != nRetVal)
     {
-        PhyStartStopInfo.dwErrorCode = 0x98110002; /* EC_E_INVALIDINDEX */
+        ERR("PhyStartStopIoctl failed: %d\n", nRetVal);
+        goto Exit;
+    }
+    if (oPhyStartStopInfo.dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
+    {
+        dwRetVal = 0x98110002; /* EC_E_INVALIDINDEX */
         nRetVal = 0;
         goto Exit;
     }
-    pDrvDescPrivate = S_apDrvDescPrivate[PhyStartStopInfo.dwIndex];
-    if (NULL == S_apDrvDescPrivate[PhyStartStopInfo.dwIndex])
+    pDrvDescPrivate = S_apDrvDescPrivate[oPhyStartStopInfo.dwIndex];
+    if (NULL == pDrvDescPrivate)
     {
         dwRetVal = 0x9811000C; /* EC_E_NOTFOUND*/
         nRetVal = 0;
         goto Exit;
     }
-
-    if (PhyStartStopInfo.bStart)
+    if (oPhyStartStopInfo.bStart)
     {
 #if (defined CONFIG_XENO_COBALT)
         mutex_lock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
@@ -2531,7 +2568,7 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
         else
         {
             mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
-            ERR("StartPhy failed! WorkerThread is busy!\n");
+            ERR("PhyStartStopIoctl: StartPhy failed! WorkerThread is busy!\n");
             nRetVal = -EAGAIN;
             goto Exit;
         }
@@ -2540,13 +2577,12 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
         pDrvDescPrivate->etx_thread_StartPhy = kthread_create(StartPhyThread,(void*)pDrvDescPrivate->pPDev,"StartPhyThread");
         if(NULL == pDrvDescPrivate->etx_thread_StartPhy)
         {
-            ERR("Cannot create kthread for StartPhyThread\n");
+            ERR("PhyStartStopIoctl: Cannot create kthread for StartPhyThread\n");
             nRetVal = -EAGAIN;
             goto Exit;
         }
         wake_up_process(pDrvDescPrivate->etx_thread_StartPhy);
 #endif /*#if (defined CONFIG_XENO_COBALT)*/
-        dwRetVal = 0; /* EC_E_NOERROR */
     }
     else
     {
@@ -2560,7 +2596,7 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
         else
         {
             mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
-            ERR("StopPhy failed! WorkerThread is busy!\n");
+            ERR("PhyStartStopIoctl: StopPhy failed! WorkerThread is busy!\n");
             nRetVal = -EAGAIN;
             goto Exit;
         }
@@ -2569,26 +2605,23 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
         pDrvDescPrivate->etx_thread_StopPhy = kthread_create(StopPhyThread,(void*)pDrvDescPrivate->pPDev,"StopPhyThread");
         if(NULL == pDrvDescPrivate->etx_thread_StopPhy)
         {
-            ERR("Cannot create kthread for StopPhyThread\n");
+            ERR("PhyStartStopIoctl: Cannot create kthread for StopPhyThread\n");
             nRetVal = -EAGAIN;
             goto Exit;
         }
         wake_up_process(pDrvDescPrivate->etx_thread_StopPhy);
 #endif /* #if (defined CONFIG_XENO_COBALT) */
-        dwRetVal = 0; /* EC_E_NOERROR */
     }
-
     nRetVal = 0;
+    dwRetVal = 0; /* EC_E_NOERROR */
 Exit:
-    if (0 == nRetVal)
-    {
-        put_user(dwRetVal, &pPhyStartStopInfoUserSpace->dwErrorCode);
-    }
-    else
-    {
-        put_user(0x98110000 /* EC_E_ERROR */, &pPhyStartStopInfoUserSpace->dwErrorCode);
-    }
+    oPhyStartStopInfo.dwErrorCode = dwRetVal;
 
+    nRetVal = copy_to_user((ATEMSYS_T_PHY_START_STOP_INFO *)ioctlParam, &oPhyStartStopInfo, sizeof(ATEMSYS_T_PHY_START_STOP_INFO));
+    if (0 != nRetVal)
+    {
+        ERR("PhyStartStopIoctl failed: %d\n", nRetVal);
+    }
     return nRetVal;
 }
 
@@ -2596,24 +2629,24 @@ Exit:
 static int GetMdioOrderIoctl( unsigned long ioctlParam)
 {
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
-    ATEMSYS_T_MDIO_ORDER* pOrderUserSpace = (ATEMSYS_T_MDIO_ORDER*)ioctlParam;
-    unsigned int dwIndex = 0;
+    ATEMSYS_T_MDIO_ORDER oOrder;
     bool bLocked = false;
-    unsigned int dwRetVal = 0;
+    unsigned int dwRetVal = 0x98110000; /* EC_E_ERROR */
     int nRetVal = -1;
-    int nRes = -1;
-
-
-    nRes = get_user(dwIndex, &pOrderUserSpace->dwIndex);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-    if (dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
+    memset(&oOrder, 0, sizeof(ATEMSYS_T_MDIO_ORDER));
+    nRetVal = copy_from_user(&oOrder, (ATEMSYS_T_MDIO_ORDER *)ioctlParam, sizeof(ATEMSYS_T_MDIO_ORDER));
+    if (0 != nRetVal)
+    {
+        ERR("GetMdioOrderIoctl failed: %d\n", nRetVal);
+        goto Exit;
+    }
+    if (oOrder.dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
     {
         dwRetVal = 0x98110002; /* EC_E_INVALIDINDEX */
         nRetVal = 0;
         goto Exit;
     }
-    pDrvDescPrivate = S_apDrvDescPrivate[dwIndex];
+    pDrvDescPrivate = S_apDrvDescPrivate[oOrder.dwIndex];
     if (NULL == pDrvDescPrivate)
     {
         dwRetVal = 0x9811000C; /* EC_E_NOTFOUND*/
@@ -2626,65 +2659,52 @@ static int GetMdioOrderIoctl( unsigned long ioctlParam)
         bLocked = true;
         if ((pDrvDescPrivate->MdioOrder.bInUse) && (pDrvDescPrivate->MdioOrder.bInUseByIoctl))
         {
-            nRes = put_user(pDrvDescPrivate->MdioOrder.bInUse, &pOrderUserSpace->bInUse);
-            if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-            nRes = put_user(pDrvDescPrivate->MdioOrder.bInUseByIoctl,&pOrderUserSpace->bInUseByIoctl);
-            if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-            nRes = put_user(pDrvDescPrivate->MdioOrder.bWriteOrder, &pOrderUserSpace->bWriteOrder);
-            if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-            nRes = put_user(pDrvDescPrivate->MdioOrder.wMdioAddr, &pOrderUserSpace->wMdioAddr);
-            if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-            nRes = put_user(pDrvDescPrivate->MdioOrder.wReg, &pOrderUserSpace->wReg);
-            if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-            nRes = put_user(pDrvDescPrivate->MdioOrder.wValue, &pOrderUserSpace->wValue);
-            if (0 != nRes) { nRetVal = nRes; goto Exit; }
+            oOrder.bInUse        = pDrvDescPrivate->MdioOrder.bInUse;
+            oOrder.bInUseByIoctl = pDrvDescPrivate->MdioOrder.bInUseByIoctl;
+            oOrder.bWriteOrder   = pDrvDescPrivate->MdioOrder.bWriteOrder;
+            oOrder.wMdioAddr     = pDrvDescPrivate->MdioOrder.wMdioAddr;
+            oOrder.wReg          = pDrvDescPrivate->MdioOrder.wReg;
+            oOrder.wValue        = pDrvDescPrivate->MdioOrder.wValue;
         }
     }
+
     dwRetVal = 0; /* EC_E_NOERROR*/
     nRetVal = 0;
-
 Exit:
     if (bLocked)
     {
         mutex_unlock(&pDrvDescPrivate->mdio_order_mutex);
     }
-    if (0 == nRetVal)
+    oOrder.dwErrorCode = dwRetVal;
+    nRetVal = copy_to_user((ATEMSYS_T_MDIO_ORDER *)ioctlParam, &oOrder, sizeof(ATEMSYS_T_MDIO_ORDER));
+    if (0 != nRetVal)
     {
-        put_user(dwRetVal, &pOrderUserSpace->dwErrorCode);
+        ERR("GetMdioOrderIoctl failed: %d\n", nRetVal);
     }
-    else
-    {
-        put_user(0x98110000 /* EC_E_ERROR */, &pOrderUserSpace->dwErrorCode);
-    }
-
     return nRetVal;
 }
 
 static int ReturnMdioOrderIoctl( unsigned long ioctlParam)
 {
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
-    ATEMSYS_T_MDIO_ORDER* pOrderUserSpace = (ATEMSYS_T_MDIO_ORDER*)ioctlParam;
-    unsigned int dwIndex = 0;
-    __u16 wValue = 0;
-    unsigned int dwRetVal = 0;
+    ATEMSYS_T_MDIO_ORDER oOrder;
+    unsigned int dwRetVal = 0x98110000; /* EC_E_ERROR */
     int nRetVal = -1;
-    int nRes = -1;
-
-    nRes = get_user(dwIndex, &pOrderUserSpace->dwIndex);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-    if (dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
+    memset(&oOrder, 0, sizeof(ATEMSYS_T_MDIO_ORDER));
+    nRetVal = copy_from_user(&oOrder, (ATEMSYS_T_MDIO_ORDER *)ioctlParam, sizeof(ATEMSYS_T_MDIO_ORDER));
+    if (0 != nRetVal)
     {
-        dwRetVal =  0x98110002; /* EC_E_INVALIDINDEX */
+        ERR("ReturnMdioOrderIoctl failed: %d\n", nRetVal);
+        goto Exit;
+    }
+
+    if (oOrder.dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
+    {
+        dwRetVal = 0x98110002; /* EC_E_INVALIDINDEX */
         nRetVal = 0;
         goto Exit;
     }
-    pDrvDescPrivate = S_apDrvDescPrivate[dwIndex];
+    pDrvDescPrivate = S_apDrvDescPrivate[oOrder.dwIndex];
     if (NULL == pDrvDescPrivate)
     {
         dwRetVal = 0x9811000C; /* EC_E_NOTFOUND*/
@@ -2692,11 +2712,16 @@ static int ReturnMdioOrderIoctl( unsigned long ioctlParam)
         goto Exit;
     }
 
-    nRes = get_user(wValue, &pOrderUserSpace->wValue);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
+    pDrvDescPrivate = S_apDrvDescPrivate[oOrder.dwIndex];
+    if (NULL == pDrvDescPrivate)
+    {
+        dwRetVal = 0x9811000C; /* EC_E_NOTFOUND*/
+        nRetVal = 0;
+        goto Exit;
+    }
 
     mutex_lock(&pDrvDescPrivate->mdio_order_mutex);
-    pDrvDescPrivate->MdioOrder.wValue = wValue;
+    pDrvDescPrivate->MdioOrder.wValue = oOrder.wValue;
     pDrvDescPrivate->MdioOrder.bInUseByIoctl = false;
     mutex_unlock(&pDrvDescPrivate->mdio_order_mutex);
 
@@ -2708,37 +2733,36 @@ static int ReturnMdioOrderIoctl( unsigned long ioctlParam)
     nRetVal = 0;
 
 Exit:
-    if (0 == nRetVal)
+    oOrder.dwErrorCode = dwRetVal;
+    nRetVal = copy_to_user((ATEMSYS_T_MDIO_ORDER *)ioctlParam, &oOrder, sizeof(ATEMSYS_T_MDIO_ORDER));
+    if (0 != nRetVal)
     {
-        put_user(dwRetVal, &pOrderUserSpace->dwErrorCode);
+        ERR("ReturnMdioOrderIoctl failed: %d\n", nRetVal);
     }
-    else
-    {
-        put_user(0x98110000 /* EC_E_ERROR */, &pOrderUserSpace->dwErrorCode);
-    }
-
     return nRetVal;
 }
 
 static int GetPhyInfoIoctl(unsigned long ioctlParam)
 {
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate  = NULL;
-    ATEMSYS_T_PHY_INFO* pStatusUserSpace = (ATEMSYS_T_PHY_INFO *)ioctlParam;
-    unsigned int dwIndex = 0;
-    unsigned int dwRetVal = 0;
+    ATEMSYS_T_PHY_INFO oStatus;
+    unsigned int dwRetVal = 0x98110000; /* EC_E_ERROR */
     int nRetVal = -1;
-    int nRes = -1;
+    memset(&oStatus, 0, sizeof(ATEMSYS_T_PHY_INFO));
+    nRetVal = copy_from_user(&oStatus, (ATEMSYS_T_PHY_INFO *)ioctlParam, sizeof(ATEMSYS_T_PHY_INFO));
+    if (0 != nRetVal)
+    {
+        ERR("GetPhyInfoIoctl failed: %d\n", nRetVal);
+        goto Exit;
+    }
 
-    nRes = get_user(dwIndex, &pStatusUserSpace->dwIndex);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-    if (dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
+    if (oStatus.dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
     {
         dwRetVal = 0x98110002; /* EC_E_INVALIDINDEX */
         nRetVal = 0;
         goto Exit;
     }
-    pDrvDescPrivate = S_apDrvDescPrivate[dwIndex];
+    pDrvDescPrivate = S_apDrvDescPrivate[oStatus.dwIndex];
     if (NULL == pDrvDescPrivate)
     {
         dwRetVal = 0x9811000C; /* EC_E_NOTFOUND*/
@@ -2746,40 +2770,29 @@ static int GetPhyInfoIoctl(unsigned long ioctlParam)
         goto Exit;
     }
 
-    nRes = put_user(pDrvDescPrivate->PhyInfo.dwLink, &pStatusUserSpace->dwLink);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-    nRes = put_user(pDrvDescPrivate->PhyInfo.dwDuplex, &pStatusUserSpace->dwDuplex);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-    nRes = put_user(pDrvDescPrivate->PhyInfo.dwSpeed, &pStatusUserSpace->dwSpeed);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
-
-    nRes = put_user(pDrvDescPrivate->PhyInfo.bPhyReady, &pStatusUserSpace->bPhyReady);
-    if (0 != nRes) { nRetVal = nRes; goto Exit; }
+    oStatus.dwLink    = pDrvDescPrivate->PhyInfo.dwLink;
+    oStatus.dwDuplex  = pDrvDescPrivate->PhyInfo.dwDuplex;
+    oStatus.dwSpeed   = pDrvDescPrivate->PhyInfo.dwSpeed;
+    oStatus.bPhyReady = pDrvDescPrivate->PhyInfo.bPhyReady;
 
     dwRetVal = 0; /* EC_E_NOERROR */
     nRetVal = 0;
-
 Exit:
-    if (0 == nRetVal)
+    oStatus.dwErrorCode = dwRetVal;
+    nRetVal = copy_to_user((ATEMSYS_T_PHY_INFO *)ioctlParam, &oStatus, sizeof(ATEMSYS_T_PHY_INFO));
+    if (0 != nRetVal)
     {
-        put_user(dwRetVal, &pStatusUserSpace->dwErrorCode);
+        ERR("GetPhyInfoIoctl failed: %d\n", nRetVal);
     }
-    else
-    {
-        put_user(0x98110000 /* EC_E_ERROR */, &pStatusUserSpace->dwErrorCode);
-    }
-
     return nRetVal;
 }
 
 static int PhyResetIoctl(unsigned long ioctlParam)
 {
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate  = NULL;
-    unsigned int* pdwIoctlData = (__u32 *)ioctlParam;
+    unsigned int* pdwIoctlData = (__u32*)ioctlParam;
     unsigned int dwIndex = 0;
-    unsigned int dwRetVal = 0;
+    unsigned int dwRetVal = 0x98110000; /* EC_E_ERROR */
     int nRetVal = -1;
     int nRes = -1;
 
@@ -2818,21 +2831,13 @@ static int PhyResetIoctl(unsigned long ioctlParam)
 
     dwRetVal = 0; /* EC_E_NOERROR */
     nRetVal = 0;
-
 Exit:
-    if (0 == nRetVal)
-    {
-        put_user(dwRetVal, pdwIoctlData);
-    }
-    else
-    {
-        put_user(0x98110000 /* EC_E_ERROR */, pdwIoctlData);
-    }
+    put_user(dwRetVal, pdwIoctlData);
 
     return nRetVal;
 }
 
-static void UpdatePhyInfoByLinuxPhyDriver(struct net_device *ndev)
+static void UpdatePhyInfoByLinuxPhyDriver(struct net_device* ndev)
 {
     struct phy_device* phy_dev = ndev->phydev;
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(ndev);
@@ -2848,7 +2853,7 @@ static void UpdatePhyInfoByLinuxPhyDriver(struct net_device *ndev)
     pDrvDescPrivate->PhyInfo.bPhyReady = true;
 }
 
-static int MdioProbe(struct net_device *ndev)
+static int MdioProbe(struct net_device* ndev)
 {
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(ndev);
     struct phy_device* pPhyDev = NULL;
@@ -2864,7 +2869,7 @@ static int MdioProbe(struct net_device *ndev)
     }
     else if (NULL != pDrvDescPrivate->pMdioNode)
     {
-        struct platform_device *mdio;
+        struct platform_device* mdio;
         mdio = of_find_device_by_node(pDrvDescPrivate->pMdioNode);
         snprintf(phy_name, sizeof(phy_name), PHY_ID_FMT, mdio->name, pDrvDescPrivate->MacInfo.dwPhyAddr);
         pPhyDev = phy_connect(ndev, phy_name, &UpdatePhyInfoByLinuxPhyDriver, pDrvDescPrivate->PhyInterface);
@@ -2924,7 +2929,7 @@ static int MdioProbe(struct net_device *ndev)
     return 0;
 }
 
-static int MdioRead(struct mii_bus *pBus, int mii_id, int regnum)
+static int MdioRead(struct mii_bus* pBus, int mii_id, int regnum)
 {
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = pBus->priv;
     int nRetVal = -1;
@@ -2967,7 +2972,7 @@ static int MdioRead(struct mii_bus *pBus, int mii_id, int regnum)
     return nRetVal;
 }
 
-static int MdioWrite(struct mii_bus *pBus, int mii_id, int regnum, u16 value)
+static int MdioWrite(struct mii_bus* pBus, int mii_id, int regnum, u16 value)
 {
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = pBus->priv;
     int nRetVal;
@@ -3010,7 +3015,7 @@ static int MdioWrite(struct mii_bus *pBus, int mii_id, int regnum, u16 value)
     return nRetVal;
 }
 
-static int MdioInit(struct platform_device *pPDev)
+static int MdioInit(struct platform_device* pPDev)
 {
     struct net_device* pNDev = platform_get_drvdata(pPDev);
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
@@ -3069,7 +3074,7 @@ Exit:
 }
 
 
-static int StopPhy(struct platform_device *pPDev)
+static int StopPhy(struct platform_device* pPDev)
 {
     struct net_device* pNDev = platform_get_drvdata(pPDev);
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
@@ -3096,7 +3101,7 @@ static int StopPhy(struct platform_device *pPDev)
     return 0;
 }
 
-static int StartPhy(struct platform_device *pPDev)
+static int StartPhy(struct platform_device* pPDev)
 {
     struct net_device* pNDev = platform_get_drvdata(pPDev);
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
@@ -3125,25 +3130,25 @@ static int StartPhy(struct platform_device *pPDev)
     return 0;
 }
 
-static int StartPhyThread(void *data)
+static int StartPhyThread(void* data)
 {
-    struct platform_device *pPDev = (struct platform_device *)data;
+    struct platform_device* pPDev = (struct platform_device*)data;
 
     StartPhy(pPDev);
 
     return 0;
 }
 
-static int StopPhyThread(void *data)
+static int StopPhyThread(void* data)
 {
-    struct platform_device *pPDev = (struct platform_device *)data;
+    struct platform_device* pPDev = (struct platform_device*)data;
 
     StopPhy(pPDev);
 
     return 0;
 }
 
-static int StopPhyWithoutIoctlMdioHandling(struct platform_device *pPDev)
+static int StopPhyWithoutIoctlMdioHandling(struct platform_device* pPDev)
 {
     struct net_device* pNDev = platform_get_drvdata(pPDev);
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
@@ -3180,13 +3185,13 @@ static int StopPhyWithoutIoctlMdioHandling(struct platform_device *pPDev)
     return 0;
 }
 
-static struct device_node * findDeviceTreeNode(struct platform_device *pPDev)
+static struct device_node* findDeviceTreeNode(struct platform_device* pPDev)
 {
     int                    nTimeout;
     unsigned int           dwRegAddr32;
     long long unsigned int qwRegAddr64;
     char                   aBuff[32] = {0};
-    struct device_node     *pDevNode;
+    struct device_node*    pDevNode;
 
     pDevNode = NULL;
     nTimeout = 100;
@@ -3246,7 +3251,7 @@ static int ResetPhyViaGpio(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
     return 0;
 }
 
-static int EthernetDriverProbe(struct platform_device *pPDev)
+static int EthernetDriverProbe(struct platform_device* pPDev)
 {
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
     struct net_device* pNDev = NULL;
@@ -3350,7 +3355,7 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
     /* get prepare data for atemsys and print some data to kernel log */
     {
         unsigned int    dwTemp          = 0;
-        const char     *szTempString    = NULL;
+        const char*     szTempString    = NULL;
         unsigned int    adwTempValues[6];
 
         /* get identification */
@@ -3480,7 +3485,7 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
         else
         {
             int nLen;
-            const __be32 *pPhyId;
+            const __be32* pPhyId;
             pPhyId = of_get_property(pDevNode, "phy_id", &nLen);
 
             if (nLen == (sizeof(__be32) * 2))
@@ -3572,7 +3577,7 @@ static int EthernetDriverProbe(struct platform_device *pPDev)
 }
 
 
-static int EthernetDriverRemove(struct platform_device *pPDev)
+static int EthernetDriverRemove(struct platform_device* pPDev)
 {
     struct net_device* pNDev = platform_get_drvdata(pPDev);
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
@@ -3696,9 +3701,9 @@ static struct platform_driver mac_driver = {
 #define ATEMSYS_PCI_DRIVER_NAME "atemsys_pci"
 #define PCI_VENDOR_ID_BECKHOFF  0x15EC
 
-static void PciDriverRemove(struct pci_dev *pPciDev)
+static void PciDriverRemove(struct pci_dev* pPciDev)
 {
-    ATEMSYS_T_PCI_DRV_DESC_PRIVATE *pPciDrvDescPrivate = (ATEMSYS_T_PCI_DRV_DESC_PRIVATE *)pci_get_drvdata(pPciDev);
+    ATEMSYS_T_PCI_DRV_DESC_PRIVATE* pPciDrvDescPrivate = (ATEMSYS_T_PCI_DRV_DESC_PRIVATE*)pci_get_drvdata(pPciDev);
 
     if (NULL != pPciDrvDescPrivate)
     {
@@ -3723,9 +3728,9 @@ static void PciDriverRemove(struct pci_dev *pPciDev)
     INF("%s: %s: disconnected\n", pci_name(pPciDev), ATEMSYS_PCI_DRIVER_NAME);
 }
 
-static int PciDriverProbe(struct pci_dev *pPciDev, const struct pci_device_id *id)
+static int PciDriverProbe(struct pci_dev* pPciDev, const struct pci_device_id* id)
 {
-    ATEMSYS_T_PCI_DRV_DESC_PRIVATE *pPciDrvDescPrivate = NULL;
+    ATEMSYS_T_PCI_DRV_DESC_PRIVATE* pPciDrvDescPrivate = NULL;
     int nRes = -ENODEV;
     int dwIndex = 0;
 
@@ -3960,13 +3965,13 @@ int init_module(void)
 
 #if (defined __arm__) || (defined __aarch64__)
     {
-        int nRetval = 0;
+        int nRetVal = 0;
         S_pPlatformDev = platform_device_alloc("atemsys_PDev", MKDEV(MAJOR_NUM, 0));
         S_pPlatformDev->dev.parent = S_pDev;
 
-        nRetval = platform_device_add(S_pPlatformDev);
-        if (nRetval != 0) {
-            ERR("platform_device_add failed. return=%d\n", nRetval);
+        nRetVal = platform_device_add(S_pPlatformDev);
+        if (nRetVal != 0) {
+            ERR("platform_device_add failed. return=%d\n", nRetVal);
         }
 
  #if (defined __arm__) || (defined CONFIG_ZONE_DMA32)

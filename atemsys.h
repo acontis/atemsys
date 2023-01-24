@@ -102,6 +102,12 @@
  *            Add Device Tree Ethernet driver phy reset
  *            Fix Device Tree Ethernet on Xenomai3
  *            Add HAVE_IRQ_TO_DESC define to handle non-mainstream API variance
+ *  V1.4.22 - Fix Build Warnings
+ *            Fix kernel config depending irq structurs
+ *            Fix kernel version 4,12 to 4.15 for handle of dma_coherent bit
+ *            Add IOMMU support, new mapping to userspace active and testet for kernel > 5.4, 
+ *             use old mapping with ATEMSYS_LEGACY_DMA=1 define or 
+ *             activat new mapping with ATEMSYS_LEGACY_DMA=0 define for older kernel
  *  atemsys is shared across EC-Master V2.7+
  *----------------------------------------------------------------------------*/
 
@@ -115,10 +121,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.21"
-#define ATEMSYS_VERSION_NUM  1,4,21
+#define ATEMSYS_VERSION_STR "1.4.22"
+#define ATEMSYS_VERSION_NUM  1,4,22
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,21)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,22)
 #endif
 
 /* support selection */
