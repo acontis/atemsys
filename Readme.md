@@ -113,6 +113,11 @@ On the running system the compiled device tree file can be generally found next 
   - `atemsys-Instance` with the instance number that is to be used by EC-Master.
   - See also `EC_LINK_PARMS_IDENT_*` in `EcLink.h`
 - Remove all interrupt properties, like `interrupt-parent` and `interrupts`, in the `ethernet-phy` sub-node. 
+- To support PHY reset via a GPIO pin add (with your values)
+  - atemsys-phy-reset-gpios = <0x4a 0x05 0x01>;
+  - atemsys-phy-reset-duration = <0x0a>;
+  - [atemsys-phy-reset-post-delay = <0x64>;]
+  - [atemsys-phy-reset-active-high = <0x1>;]]
 
 ### Example
 :information_source: More example device trees for different platforms can be found in the [Wiki](https://github.com/acontis/atemsys/wiki).
@@ -148,3 +153,15 @@ ethernet@02188000 {
   };
 };
 </code></pre>
+
+
+### Kernel Modul Parameters
+
+<strong>loglevel:</strong>
+Set atemsys log level (Default <code>KERN_INFO(6)</code>) according kernel log level definition.<br>
+Example: <code>insmod atemsys loglevel=3</code>
+
+<strong>AllowedPciDevices:</strong>
+Select PCI / PCIe devices to be registered by atemsys. By default all PCI network devices are registered. Passing an empty string turns off the PCI driver registration. A semicolon separated list of devices defined by the following format can be passed:<br>
+<code>\<domain\>:\<bus\>:\<device\>.\<func\></code><br>
+Example: <code>insmod atemsys AllowedPciDevices="0000:01:00.0;0000:02:00.0"</code>
