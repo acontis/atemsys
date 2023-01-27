@@ -920,8 +920,8 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
                 }
 
                 /* IO area length */
-                oPciDesc.aBar[i].dwIOLen = pci_resource_len(pDevDesc->pPcidev, i);
-                oPciDesc.aBar[i].qwIOMem = ioBase;
+                oPciDesc.aBar[nBar].dwIOLen = pci_resource_len(pDevDesc->pPcidev, i);
+                oPciDesc.aBar[nBar].qwIOMem = ioBase;
 
                 nBar++;
             }
