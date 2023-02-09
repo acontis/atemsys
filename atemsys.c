@@ -382,6 +382,7 @@ typedef struct _ATEMSYS_T_DRV_DESC_PRIVATE
     phy_interface_t             PhyInterface;
     struct device_node*         pPhyNode;
     struct device_node*         pMdioNode;
+    struct device_node*         pMdioDevNode; /* node for own mdio bus */
     struct phy_device*          pPhyDev;
     struct regulator*           pPhyRegulator;
     struct task_struct*         etx_thread_StartPhy;
@@ -3019,7 +3020,6 @@ static int MdioInit(struct platform_device* pPDev)
 {
     struct net_device* pNDev = platform_get_drvdata(pPDev);
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
-    struct device_node* pDevNode;
     int nRes = -ENXIO;
 
     if (pDrvDescPrivate->MacInfo.bNoMdioBus)
@@ -3043,14 +3043,10 @@ static int MdioInit(struct platform_device* pPDev)
     pDrvDescPrivate->pMdioBus->priv = pDrvDescPrivate;
     pDrvDescPrivate->pMdioBus->parent = &pPDev->dev;
 
-    pDevNode = of_get_child_by_name(pDrvDescPrivate->pDevNode, "mdio");
-    if (NULL == pDevNode) {pDevNode = of_get_child_by_name(pDrvDescPrivate->pDevNode, "mdio0");}
-    if (NULL == pDevNode) {pDevNode = of_get_child_by_name(pDrvDescPrivate->pDevNode, "phy");}
-    if (NULL == pDevNode) {pDevNode = of_get_child_by_name(pDrvDescPrivate->pDevNode, "ethernet-phy");}
-    if (NULL != pDevNode)
+    if (NULL != pDrvDescPrivate->pMdioDevNode)
     {
-        nRes = of_mdiobus_register(pDrvDescPrivate->pMdioBus, pDevNode);
-        of_node_put(pDevNode);
+        nRes = of_mdiobus_register(pDrvDescPrivate->pMdioBus, pDrvDescPrivate->pMdioDevNode);
+        of_node_put(pDrvDescPrivate->pMdioDevNode);
     }
     else
     {
@@ -3499,13 +3495,39 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
             }
         }
 
-        /* look for mdio node */
-        if ((NULL == of_get_child_by_name(pDevNode, "mdio"))    &&
-            (NULL == of_get_child_by_name(pDevNode, "mdio0"))   &&
-            (NULL == of_get_child_by_name(pDevNode, "phy"))     &&
-            (NULL == of_get_child_by_name(pDevNode, "ethernet-phy")))
+        /* check if mdio node is sub-node and mac has own mdio bus */
         {
-            if ((NULL != pDrvDescPrivate->pPhyNode) || (NULL != pDrvDescPrivate->pMdioNode))
+            pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "mdio");
+            if (NULL == pDrvDescPrivate->pMdioDevNode)
+                pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "mdio0");
+            if (NULL == pDrvDescPrivate->pMdioDevNode)
+                pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "mdio1");
+            if (NULL == pDrvDescPrivate->pMdioDevNode)
+                pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "phy");
+            if (NULL == pDrvDescPrivate->pMdioDevNode)
+                pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "ethernet-phy");
+
+            if ((NULL == pDrvDescPrivate->pMdioDevNode) && (NULL != pDrvDescPrivate->pPhyNode))
+            {
+                /* check if phy node is subnode and us first sub-node as node for mdio bus */
+                struct device_node *pTempNode = of_get_parent(pDrvDescPrivate->pPhyNode);
+                if ((NULL != pTempNode) && (pTempNode == pDevNode))
+                {
+                    pDrvDescPrivate->pMdioDevNode = pDrvDescPrivate->pPhyNode;
+                }
+                else if ((NULL != pTempNode) && (of_get_parent(pTempNode) == pDevNode))
+                {
+                    pDrvDescPrivate->pMdioDevNode = pTempNode;
+                }
+            }
+
+            if (NULL != pDrvDescPrivate->pMdioDevNode)
+            {
+                /* mdio bus is owned by current mac instance */
+                pDrvDescPrivate->MacInfo.bNoMdioBus = false;
+                INF("%s: mac has mdio bus.\n", pPDev->name );
+            }
+            else if ((NULL != pDrvDescPrivate->pPhyNode) || (NULL != pDrvDescPrivate->pMdioNode))
             {
                 /* mdio bus owned by another mac instance */
                 pDrvDescPrivate->MacInfo.bNoMdioBus = true;
@@ -3517,12 +3539,6 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
                 pDrvDescPrivate->MacInfo.bNoMdioBus = false;
                 INF("%s: handle mdio bus without device tree node.\n", pPDev->name );
             }
-        }
-        else
-        {
-            /* mdio bus is owned by current mac instance */
-            pDrvDescPrivate->MacInfo.bNoMdioBus = false;
-            DBG("%s: mac has mdio bus.\n", pPDev->name );
         }
 
         /* PHY reset data */
