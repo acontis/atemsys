@@ -163,6 +163,7 @@
 #include <linux/wait.h>
 #include <asm/param.h>
 #include <linux/of_gpio.h>
+#include <linux/reset.h>
 #endif
 #if ((defined CONFIG_PCI) \
        && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0) /* not tested */))
@@ -371,6 +372,9 @@ typedef struct _ATEMSYS_T_DRV_DESC_PRIVATE
 
     /* storage and identification */
     ATEMSYS_T_MAC_INFO          MacInfo;
+
+    /* powermanagement */
+    struct reset_control*       pResetCtl;
 
     /* clocks */
     const char*                 clk_ids[ATEMSYS_MAX_NUMBER_OF_CLOCKS];
@@ -1038,7 +1042,7 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
     ATEMSYS_T_PCI_SELECT_DESC_v1_0_00 oPciDesc_v1_0_00;
     ATEMSYS_T_PCI_SELECT_DESC_v1_3_05 oPciDesc_v1_3_05;
     ATEMSYS_T_PCI_SELECT_DESC_v1_4_12 oPciDesc_v1_4_12;
-    
+
 
 
 
@@ -1332,7 +1336,7 @@ static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioct
     unsigned int irq = 0;
 
 #if (defined CONFIG_PCI)
-    if (ioctlParam == USE_PCI_INT)
+    if (ioctlParam == ATEMSYS_USE_PCI_INT)
     {
         /* Use IRQ number from selected PCI device */
 
@@ -1532,6 +1536,58 @@ Exit:
 #endif
    return nRetVal;
 }
+
+#if ((defined CONFIG_SMP) && (LINUX_VERSION_CODE > KERNEL_VERSION(5,14,0)))
+static int SetIntCpuAffinityIoctl(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlParam, size_t size)
+{
+    int nRetVal = -EIO;
+    ATEMSYS_T_IRQ_DESC* pIrqDesc = &(pDevDesc->irqDesc);
+    struct cpumask* pCpuMask = 0;
+
+    if (size > sizeof(struct cpumask))
+    {
+        ERR("SetIntCpuAffinityIoctl: cpu mask length mismatch\n");
+        nRetVal = -EINVAL;
+        goto Exit;
+    }
+
+    /* prepare cpu affinity mask*/
+    pCpuMask = (struct cpumask*)kzalloc(sizeof(struct cpumask), GFP_KERNEL);
+    if (NULL == pCpuMask)
+    {
+        ERR("SetIntCpuAffinityIoctl: no memory\n");
+        nRetVal = -ENOMEM;
+        goto Exit;
+    }
+    memset(pCpuMask, 0, sizeof(struct cpumask)>size? sizeof(struct cpumask): size);
+
+    nRetVal = copy_from_user(pCpuMask, (struct cpumask *)ioctlParam, size);
+    if (0 != nRetVal)
+    {
+        ERR("SetIntCpuAffinityIoctl failed: %d\n", nRetVal);
+        goto Exit;
+    }
+
+    /* set cpu affinity mask*/
+    if (pIrqDesc->irq)
+    {
+        nRetVal = irq_set_affinity(pIrqDesc->irq, pCpuMask);
+        if (0 != nRetVal)
+        {
+            ERR("SetIntCpuAffinityIoctl: irq_set_affinity failed: %d\n", nRetVal);
+            nRetVal = -EIO;
+            goto Exit;
+        }
+    }
+
+    nRetVal = 0;
+Exit:
+    if (NULL != pCpuMask)
+        kfree(pCpuMask);
+
+    return nRetVal;
+}
+#endif /* #if ((defined CONFIG_SMP) && (LINUX_VERSION_CODE > KERNEL_VERSION(5,14,0))) */
 
 #if (defined CONFIG_PCI)
 static void dev_pci_release(ATEMSYS_T_DEVICE_DESC* pDevDesc)
@@ -2329,6 +2385,17 @@ static long atemsys_ioctl(
             goto Exit;
          }
       } break;
+#if ((defined CONFIG_SMP) && (LINUX_VERSION_CODE > KERNEL_VERSION(5,14,0)))
+      case ATEMSYS_IOCTL_INT_SET_CPU_AFFINITY:
+      {
+          nRetVal = SetIntCpuAffinityIoctl(pDevDesc, arg, _IOC_SIZE(cmd));
+          if (0 != nRetVal)
+          {
+              ERR("ioctl ATEMSYS_IOCTL_INT_SET_CPU_AFFINITY failed: %d\n", nRetVal);
+              goto Exit;
+          }
+      } break;
+#endif
 
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
     case ATEMSYS_IOCTL_GET_MAC_INFO:
@@ -3348,6 +3415,29 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
     pm_runtime_set_active(&pPDev->dev);
     pm_runtime_enable(&pPDev->dev);
 
+    /* resets */
+    {
+        struct reset_control*   pResetCtl;
+        const char*             szTempString = NULL;
+
+        nRes = of_property_read_string(pDevNode, "reset-names", &szTempString);
+        pResetCtl = devm_reset_control_get_optional(&pPDev->dev, szTempString);
+        if (NULL != pResetCtl)
+        {
+            nRes = reset_control_assert(pResetCtl);
+            reset_control_deassert(pResetCtl);
+
+            /* Some reset controllers have only reset callback instead of
+             * assert + deassert callbacks pair.
+             */
+            if (-ENOTSUPP == nRes)
+            {
+                reset_control_reset(pResetCtl);
+                pDrvDescPrivate->pResetCtl = pResetCtl;
+            }
+        }
+    }
+
     /* get prepare data for atemsys and print some data to kernel log */
     {
         unsigned int    dwTemp          = 0;
@@ -3549,7 +3639,7 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
         if (nRes) pDrvDescPrivate->nPhyResetPostDelay = 0;
         pDrvDescPrivate->bPhyResetGpioActiveHigh = of_property_read_bool(pDevNode, "atemsys-phy-reset-active-high");
 
-        if ((0 != pDrvDescPrivate->nPhyResetDuration) && (pDrvDescPrivate->nPhyResetGpioPin != -EPROBE_DEFER) 
+        if ((0 != pDrvDescPrivate->nPhyResetDuration) && (pDrvDescPrivate->nPhyResetGpioPin != -EPROBE_DEFER)
                 && gpio_is_valid(pDrvDescPrivate->nPhyResetGpioPin))
         {
             pDrvDescPrivate->MacInfo.bPhyResetSupported = true;
@@ -3615,6 +3705,11 @@ static int EthernetDriverRemove(struct platform_device* pPDev)
     pm_runtime_put(&pPDev->dev);
     pm_runtime_disable(&pPDev->dev);
 
+    /* resets */
+    if (NULL != pDrvDescPrivate->pResetCtl)
+    {
+        reset_control_assert(pDrvDescPrivate->pResetCtl);
+    }
     for (i = 0; i < ATEMSYS_MAX_NUMBER_OF_CLOCKS; i++)
     {
         if (NULL != pDrvDescPrivate->clk_ids[i])

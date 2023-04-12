@@ -110,6 +110,8 @@
  *             activate new mapping with ATEMSYS_LEGACY_DMA=0 define for older kernel
  *  V1.4.23 - Fix PCI bars
  *  V1.4.24 - Add Device Tree Ethernet driver support for STM32mp135
+ *  V1.4.25 - Add IOCTL_INT_CPU_AFFINITY
+ *            Add Device Tree Ethernet driver support for RockChip
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -124,10 +126,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.24"
-#define ATEMSYS_VERSION_NUM  1,4,24
+#define ATEMSYS_VERSION_STR "1.4.25"
+#define ATEMSYS_VERSION_NUM  1,4,25
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,24)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,25)
 #endif
 
 /* support selection */
@@ -175,6 +177,7 @@
 #define ATEMSYS_IOCTL_GET_PHY_INFO              _IOWR(MAJOR_NUM, 12, ATEMSYS_T_PHY_INFO)
 #define ATEMSYS_IOCTL_MOD_SET_API_VERSION       _IOR(MAJOR_NUM,  13, __u32)
 #define ATEMSYS_IOCTL_PHY_RESET                 _IOWR(MAJOR_NUM, 14, __u32)
+#define ATEMSYS_IOCTL_INT_SET_CPU_AFFINITY      _IOWR(MAJOR_NUM, 15, __u32)
 
 /* support legacy source code */
 #define IOCTL_PCI_FIND_DEVICE           ATEMSYS_IOCTL_PCI_FIND_DEVICE
