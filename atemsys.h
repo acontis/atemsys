@@ -88,13 +88,13 @@
  *            Add support for 64Bit DMA Memory
  *            Add support for PCI DMA address translation
  *  V1.4.15 - Fix API version IO Controls
- *  V1.4.16 - Fix Xenomai3 on arm, 
+ *  V1.4.16 - Fix Xenomai3 on arm,
  *            Add support for Device Tree Ethernet driver and PCI driver with Xenomai3
  *            Fix PCI DMA address translation on arm
  *  V1.4.17 - Fix dma_set_mask_and_coherent() missing in kernels under 3.12.55
  *  V1.4.18 - Remove obsolete ARM cycle count register(CCNT)
  *            Fix PCI driver do registration for all Ethernet network adapters
- *            Add modul parameter AllowedPciDevices to adjust PCI driver, AllowedPciDevices="" will turn off PCI driver, 
+ *            Add modul parameter AllowedPciDevices to adjust PCI driver, AllowedPciDevices="" will turn off PCI driver,
  *            (insmod atemsys AllowedPciDevices="0000:01:00.0;0000:02:00.0")
  *  V1.4.19 - Fix Xenomai2 ARMv8 32Bit
  *  V1.4.20 - Fix support for CMA for kernel > 4.9.00
@@ -105,13 +105,17 @@
  *  V1.4.22 - Fix Build Warnings
  *            Fix kernel config depending irq structures
  *            Fix kernel version 4.12 to 4.15 for handle of dma_coherent bit
- *            Add IOMMU support, new mapping to userspace active and tested for kernel > 5.4, 
- *             use old mapping with ATEMSYS_LEGACY_DMA=1 define or 
+ *            Add IOMMU support, new mapping to userspace active and tested for kernel > 5.4,
+ *             use old mapping with ATEMSYS_LEGACY_DMA=1 define or
  *             activate new mapping with ATEMSYS_LEGACY_DMA=0 define for older kernel
  *  V1.4.23 - Fix PCI bars
  *  V1.4.24 - Add Device Tree Ethernet driver support for STM32mp135
  *  V1.4.25 - Add IOCTL_INT_CPU_AFFINITY
  *            Add Device Tree Ethernet driver support for RockChip
+ *  V1.4.26 - Fix for arm/aarch64 kernel >= 6.00.00,
+ *            Fix version of_dma_configure
+ *            Add ATEMSYS_IOCTL_IOMEM_CMD for Kernel mode access to protected registers
+ *            Add ATEMSYS_IOCTL_CPSWG_CMD to configure K3_UDMA_CPSWG Channels, Flows and Rings
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -126,10 +130,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.25"
-#define ATEMSYS_VERSION_NUM  1,4,25
+#define ATEMSYS_VERSION_STR "1.4.26"
+#define ATEMSYS_VERSION_NUM  1,4,26
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,25)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,26)
 #endif
 
 /* support selection */
@@ -178,6 +182,8 @@
 #define ATEMSYS_IOCTL_MOD_SET_API_VERSION       _IOR(MAJOR_NUM,  13, __u32)
 #define ATEMSYS_IOCTL_PHY_RESET                 _IOWR(MAJOR_NUM, 14, __u32)
 #define ATEMSYS_IOCTL_INT_SET_CPU_AFFINITY      _IOWR(MAJOR_NUM, 15, __u32)
+#define ATEMSYS_IOCTL_IOMEM_CMD                 _IOWR(MAJOR_NUM, 16, ATEMSYS_T_IOMEM_CMD)
+#define ATEMSYS_IOCTL_CPSWG_CMD                 _IOWR(MAJOR_NUM, 17, ATEMSYS_T_CPSWG_CMD)
 
 /* support legacy source code */
 #define IOCTL_PCI_FIND_DEVICE           ATEMSYS_IOCTL_PCI_FIND_DEVICE
@@ -369,6 +375,50 @@ typedef struct
     __u32                       dwReserved[4];
 } __attribute__((packed)) ATEMSYS_T_PHY_START_STOP_INFO;
 
+
+
+
+typedef struct
+{
+    __u32                       dwIndex;                            /* [out]    Index of Mac in atemsys handling */
+    __u32                       dwCmd;                              /* [out]    Id of the command */
+#define ATEMSYS_IOMEM_CMD_MAP_PERMANENT   1
+#define ATEMSYS_IOMEM_CMD_UNMAP_PERMANENT 2
+#define ATEMSYS_IOMEM_CMD_READ            3
+#define ATEMSYS_IOMEM_CMD_WRITE           4
+
+    __u64                       qwPhys;                             /* [out]    physical memory address */
+    __u32                       dwSize;                             /* [out]    size of the memory area */
+    __u32                       dwOffset;                           /* [out]    memory offset for read and write command */
+    __u32                       dwDataSize;                         /* [out]    data size for read and write command */
+    __u32                       dwData[4];                          /* [in/out] data buffer for read and write command */
+} __attribute__((packed)) ATEMSYS_T_IOMEM_CMD;
+
+
+typedef struct
+{
+    __u32                       dwIndex;                            /* [out]    Index of Mac in atemsys handling */
+    __u32                       dwChannelIdx;                       /* [out]    Index of the internal channel handling */
+    __u32                       dwCmd;                              /* [out]    Id of the command */
+#define ATEMSYS_CPSWG_CMD_CONFIG_TX  1
+#define ATEMSYS_CPSWG_CMD_CONFIG_RX  2
+#define ATEMSYS_CPSWG_CMD_ENABLE_TX  3
+#define ATEMSYS_CPSWG_CMD_ENABLE_RX  4
+#define ATEMSYS_CPSWG_CMD_DISABLE_TX 5
+#define ATEMSYS_CPSWG_CMD_DISABLE_RX 6
+#define ATEMSYS_CPSWG_CMD_RELEASE_TX 7
+#define ATEMSYS_CPSWG_CMD_RELEASE_RX 8
+
+    __u64                       qwRingDma;                          /* [in]     1. ring physical memory address */
+    __u32                       dwRingSize;                         /* [in/out] 1. ring size / number of elements */
+    __u32                       dwRingId;                           /* [in]     1. ring index */
+    __u64                       qwRingFdqDma;                       /* [in]     2. ring physical memory address */
+    __u32                       dwRingFdqSize;                      /* [in/put] 2. ring size / number of elements */
+    __u32                       dwRingFdqId;                        /* [in]     2. ring index */
+    __u32                       dwChanId;                           /* [in]     2. ring index */
+    __u32                       dwFlowIdBase;                       /* [in]     2. ring index */
+    __u32                       dwReserved[32];
+} __attribute__((packed)) ATEMSYS_T_CPSWG_CMD;
 
 #endif  /* ATEMSYS_H */
 

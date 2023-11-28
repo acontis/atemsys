@@ -267,8 +267,10 @@ MODULE_PARM_DESC(loglevel, "Set log level default LOGLEVEL_INFO, see /include/li
 
 #if ((defined CONFIG_OF) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,18,0)) && !(defined CONFIG_XENO_COBALT))
   #define OF_DMA_CONFIGURE(dev, of_node) of_dma_configure(dev, of_node, true)
-#elif ((defined CONFIG_OF) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3,16,0)) && !(defined CONFIG_XENO_COBALT))
+#elif ((defined CONFIG_OF) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,1,0)) && !(defined CONFIG_XENO_COBALT))
   #define OF_DMA_CONFIGURE(dev, of_node) of_dma_configure(dev, of_node)
+#elif ((defined CONFIG_OF) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3,16,0)) && !(defined CONFIG_XENO_COBALT))
+ #define OF_DMA_CONFIGURE(dev, of_node) of_dma_configure(dev)
 #else
  #define OF_DMA_CONFIGURE(dev, of_node)
 #endif
@@ -363,6 +365,13 @@ static ATEMSYS_T_PCI_DRV_DESC_PRIVATE*  S_apPciDrvDescPrivate[ATEMSYS_MAX_NUMBER
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
 #define ATEMSYS_MAX_NUMBER_OF_CLOCKS 10
 
+typedef struct
+{
+    void __iomem*   pbyBase;
+    __u64           qwPhys;
+    __u32           dwSize;
+} ATEMSYS_T_IOMEM;
+
 typedef struct _ATEMSYS_T_DRV_DESC_PRIVATE
 {
     int                         nDev_id;
@@ -405,6 +414,18 @@ typedef struct _ATEMSYS_T_DRV_DESC_PRIVATE
     struct mutex                mdio_mutex;
     wait_queue_head_t           mdio_wait_queue;
     int                         mdio_wait_queue_cnt;
+
+#ifdef CONFIG_TI_K3_UDMA
+    /* Ti CPSWG Channel, Flow & Ring */
+#define ATEMSYS_UDMA_CHANNELS 10
+    void*                       apvTxChan[ATEMSYS_UDMA_CHANNELS];
+    int                         anTxIrq[ATEMSYS_UDMA_CHANNELS];
+    void*                       apvRxChan[ATEMSYS_UDMA_CHANNELS];
+    int                         anRxIrq[ATEMSYS_UDMA_CHANNELS];
+#endif /*#ifdef CONFIG_TI_K3_UDMA*/
+
+#define IOMEMLIST_LENGTH 20
+    ATEMSYS_T_IOMEM             oIoMemList[IOMEMLIST_LENGTH];
 
     /* frame descriptor of the EcMaster connection */
     ATEMSYS_T_DEVICE_DESC*      pDevDesc;
@@ -1537,6 +1558,629 @@ Exit:
    return nRetVal;
 }
 
+#if (defined INCLUDE_ATEMSYS_DT_DRIVER)
+#ifdef CONFIG_TI_K3_UDMA
+
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(5,11,0)) || (LINUX_VERSION_CODE == KERNEL_VERSION(5,10,168))
+ #define CPSWG_STRUCT_VERSION_2 1
+#endif
+
+#include <linux/soc/ti/k3-ringacc.h>
+#include <linux/soc/ti/ti_sci_protocol.h>
+#include <linux/soc/ti/ti_sci_protocol.h>
+
+/* from */
+struct k3_ring_state {
+    u32 free;
+    u32 occ;
+    u32 windex;
+    u32 rindex;
+#ifdef CPSWG_STRUCT_VERSION_2
+    u32 tdown_complete:1;
+#endif
+};
+
+struct k3_ring {
+    struct k3_ring_rt_regs __iomem *rt;
+    struct k3_ring_fifo_regs __iomem *fifos;
+    struct k3_ringacc_proxy_target_regs  __iomem *proxy;
+    dma_addr_t  ring_mem_dma;
+    void        *ring_mem_virt;
+    struct k3_ring_ops *ops;
+    u32     size;
+    enum k3_ring_size elm_size;
+    enum k3_ring_mode mode;
+    u32     flags;
+#define K3_RING_FLAG_BUSY   BIT(1)
+#define K3_RING_FLAG_SHARED BIT(2)
+#ifdef CPSWG_STRUCT_VERSION_2
+ #define K3_RING_FLAG_REVERSE BIT(3)
+#endif
+    struct k3_ring_state state;
+    u32     ring_id;
+    struct k3_ringacc   *parent;
+    u32     use_count;
+    int     proxy_id;
+#ifdef CPSWG_STRUCT_VERSION_2
+    struct device   *dma_dev;
+    u32     asel;
+#define K3_ADDRESS_ASEL_SHIFT   48
+#endif
+};
+
+struct k3_udma_glue_common {
+    struct device *dev;
+#ifdef CPSWG_STRUCT_VERSION_2
+    struct device chan_dev;
+#endif
+    struct udma_dev *udmax;
+    const struct udma_tisci_rm *tisci_rm;
+    struct k3_ringacc *ringacc;
+    u32 src_thread;
+    u32 dst_thread;
+
+    u32  hdesc_size;
+    bool epib;
+    u32  psdata_size;
+    u32  swdata_size;
+    u32  atype;
+#ifdef CPSWG_STRUCT_VERSION_2
+    struct psil_endpoint_config *ep_config;
+#endif
+};
+
+struct k3_udma_glue_tx_channel {
+    struct k3_udma_glue_common common;
+
+    struct udma_tchan *udma_tchanx;
+    int udma_tchan_id;
+
+    struct k3_ring *ringtx;
+    struct k3_ring *ringtxcq;
+
+    bool psil_paired;
+
+    int virq;
+
+    atomic_t free_pkts;
+    bool tx_pause_on_err;
+    bool tx_filt_einfo;
+    bool tx_filt_pswords;
+    bool tx_supr_tdpkt;
+#ifdef CPSWG_STRUCT_VERSION_2
+    int udma_tflow_id;
+#endif
+};
+
+
+
+struct k3_udma_glue_rx_flow {
+    struct udma_rflow *udma_rflow;
+    int udma_rflow_id;
+    struct k3_ring *ringrx;
+    struct k3_ring *ringrxfdq;
+
+    int virq;
+};
+
+struct k3_udma_glue_rx_channel {
+    struct k3_udma_glue_common common;
+
+    struct udma_rchan *udma_rchanx;
+    int udma_rchan_id;
+    bool remote;
+
+    bool psil_paired;
+
+    u32  swdata_size;
+    int  flow_id_base;
+
+    struct k3_udma_glue_rx_flow *flows;
+    u32 flow_num;
+    u32 flows_ready;
+};
+
+
+#define AM65_CPSW_NAV_SW_DATA_SIZE 16
+#define AM65_CPSW_MAX_RX_FLOWS  1
+
+#include "../drivers/dma/ti/k3-udma.h"
+
+#include <linux/dma/k3-udma-glue.h>
+void cleanup(void *data, dma_addr_t desc_dma)
+{
+    return;
+}
+
+static int CpswgCmd(void* arg,  ATEMSYS_T_CPSWG_CMD* pConfig)
+{
+    struct k3_udma_glue_tx_channel** ppTxChn = NULL;
+    struct k3_udma_glue_rx_channel** ppRxChn = NULL;
+    __u32* pnTxIrq;
+    __u32* pnRxIrq;
+    ATEMSYS_T_CPSWG_CMD oConfig;
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
+    unsigned int dwRetVal = 0x98110000; /* EC_E_ERROR */
+    int nRetVal = -1;
+    memset(&oConfig, 0, sizeof(ATEMSYS_T_CPSWG_CMD));
+
+    if (NULL == pConfig)
+    {
+        nRetVal = copy_from_user(&oConfig, (ATEMSYS_T_CPSWG_CMD *)arg, sizeof(ATEMSYS_T_CPSWG_CMD));
+    }
+    else
+    {
+        memcpy(&oConfig, pConfig, sizeof(ATEMSYS_T_CPSWG_CMD));
+        nRetVal = 0;
+    }
+    if (0 != nRetVal)
+    {
+        ERR("CpswgCmd(): failed: %d\n", nRetVal);
+        goto Exit;
+    }
+    if (oConfig.dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
+    {
+        dwRetVal = 0x98110002; /* EC_E_INVALIDINDEX */
+        nRetVal = 0;
+        goto Exit;
+    }
+    pDrvDescPrivate = S_apDrvDescPrivate[oConfig.dwIndex];
+    if (NULL == pDrvDescPrivate)
+    {
+        ERR("CpswgCmd(): cant find instance\n");
+        nRetVal = -EBUSY;
+        goto Exit;
+    }
+
+    DBG("CpswgCmd(): dwCmd: %d\n", oConfig.dwCmd);
+    ppTxChn = (struct k3_udma_glue_tx_channel**)&pDrvDescPrivate->apvTxChan[oConfig.dwChannelIdx];
+    ppRxChn = (struct k3_udma_glue_rx_channel**)&pDrvDescPrivate->apvRxChan[oConfig.dwChannelIdx];
+    pnTxIrq = &pDrvDescPrivate->anTxIrq[oConfig.dwChannelIdx];
+    pnRxIrq = &pDrvDescPrivate->anRxIrq[oConfig.dwChannelIdx];
+
+
+    switch (oConfig.dwCmd)
+    {
+    case ATEMSYS_CPSWG_CMD_CONFIG_TX:
+    {
+        char tx_chn_name[128];
+        struct k3_ring_cfg ring_cfg =
+        {
+            .elm_size = K3_RINGACC_RING_ELSIZE_8,
+            .mode = K3_RINGACC_RING_MODE_RING,
+            .flags = 0
+        };
+        struct k3_udma_glue_tx_channel_cfg tx_cfg = { 0 };
+
+        tx_cfg.swdata_size = AM65_CPSW_NAV_SW_DATA_SIZE;
+        tx_cfg.tx_cfg = ring_cfg;
+        tx_cfg.txcq_cfg = ring_cfg;
+        tx_cfg.tx_cfg.size = oConfig.dwRingSize;
+        tx_cfg.txcq_cfg.size = oConfig.dwRingSize;
+        snprintf(tx_chn_name, sizeof(tx_chn_name), "tx%d", 0);
+
+        *ppTxChn = k3_udma_glue_request_tx_chn(&pDrvDescPrivate->pPDev->dev,
+                            tx_chn_name,
+                            &tx_cfg);
+        if (IS_ERR(*ppTxChn))
+        {
+            ERR("CpswgCmd(): Failed to request tx dma channel %ld\n", PTR_ERR(*ppTxChn));
+            *ppTxChn = NULL;
+            goto Exit;
+        }
+
+        *pnTxIrq = k3_udma_glue_tx_get_irq(*ppTxChn);
+        if (*pnTxIrq <= 0)
+        {
+            ERR("CpswgCmd(): Failed to get tx dma irq %d\n", *pnTxIrq);
+            goto Exit;
+        }
+
+        {
+            struct k3_udma_glue_tx_channel* pData = (struct k3_udma_glue_tx_channel*)*ppTxChn;
+            DBG("CpswgCmd(): k3_udma_glue_request_tx_chn(): udma_tchan_id:0x%x, ringtx:0x%x::0x%px, ringtxcq:0x%x::0x%px\n",
+            pData->udma_tchan_id,
+            pData->ringtx->ring_id, (unsigned char*)NULL + pData->ringtx->ring_mem_dma,
+            pData->ringtxcq->ring_id, (unsigned char*)NULL + pData->ringtxcq->ring_mem_dma);
+
+            oConfig.dwChanId = pData->udma_tchan_id;
+            oConfig.dwRingId = pData->ringtx->ring_id;
+            oConfig.qwRingDma = pData->ringtx->ring_mem_dma;
+            oConfig.dwRingSize = pData->ringtx->size;
+            oConfig.dwRingFdqId = pData->ringtxcq->ring_id;
+            oConfig.qwRingFdqDma = pData->ringtxcq->ring_mem_dma;
+            oConfig.dwRingFdqSize = pData->ringtxcq->size;
+
+            nRetVal = copy_to_user((ATEMSYS_T_CPSWG_CMD *)arg, &oConfig, sizeof(ATEMSYS_T_CPSWG_CMD));
+            if (0 != nRetVal)
+            {
+                ERR("CpswgCmd(): copy_to_user() failed: %d\n", nRetVal);
+            }
+        }
+    } break;
+    case ATEMSYS_CPSWG_CMD_CONFIG_RX:
+    {
+        u32  rx_flow_id_base = -1;
+        u32 fdqring_id;
+
+        struct k3_udma_glue_rx_channel_cfg rx_cfg = { 0 };
+
+        rx_cfg.swdata_size = AM65_CPSW_NAV_SW_DATA_SIZE;
+        rx_cfg.flow_id_num = AM65_CPSW_MAX_RX_FLOWS;
+        rx_cfg.flow_id_base = rx_flow_id_base;
+
+        *ppRxChn = k3_udma_glue_request_rx_chn(&pDrvDescPrivate->pPDev->dev, "rx", &rx_cfg);
+        if (IS_ERR(*ppRxChn)) {
+            ERR("CpswgCmd(): Failed to request rx dma channel %ld\n", PTR_ERR(*ppRxChn));
+           *ppRxChn = NULL;
+            goto Exit;
+        }
+
+        rx_flow_id_base = k3_udma_glue_rx_get_flow_id_base(*ppRxChn);
+        fdqring_id = K3_RINGACC_RING_ID_ANY;
+        /*for*/
+        {
+            u32 i = 0;
+            struct k3_ring_cfg rxring_cfg = {
+                .elm_size = K3_RINGACC_RING_ELSIZE_8,
+                .mode = K3_RINGACC_RING_MODE_RING,
+                .flags = 0,
+            };
+            struct k3_ring_cfg fdqring_cfg = {
+                .elm_size = K3_RINGACC_RING_ELSIZE_8,
+                .mode = K3_RINGACC_RING_MODE_MESSAGE,
+                .flags = K3_RINGACC_RING_SHARED,
+            };
+            struct k3_udma_glue_rx_flow_cfg rx_flow_cfg = {
+                .rx_cfg = rxring_cfg,
+                .rxfdq_cfg = fdqring_cfg,
+                .ring_rxq_id = K3_RINGACC_RING_ID_ANY,
+                .src_tag_lo_sel = K3_UDMA_GLUE_SRC_TAG_LO_USE_REMOTE_SRC_TAG,
+            };
+
+            rx_flow_cfg.ring_rxfdq0_id = fdqring_id;
+            rx_flow_cfg.rx_cfg.size = oConfig.dwRingSize;
+            rx_flow_cfg.rxfdq_cfg.size = oConfig.dwRingSize;
+
+            nRetVal = k3_udma_glue_rx_flow_init(*ppRxChn, i, &rx_flow_cfg);
+            if (nRetVal) {
+                ERR("CpswgCmd(): Failed to init rx flow%d %d\n", i, nRetVal);
+                goto Exit;
+            }
+            if (!i)
+                fdqring_id = k3_udma_glue_rx_flow_get_fdq_id(*ppRxChn, i);
+
+            *pnRxIrq = k3_udma_glue_rx_get_irq(*ppRxChn, i);
+
+            if (*pnRxIrq <= 0) {
+                ERR("CpswgCmd(): Failed to get rx dma irq %d\n", *pnRxIrq);
+                goto Exit;
+            }
+        }
+        {
+            struct k3_udma_glue_rx_flow* pData = (struct k3_udma_glue_rx_flow*)(*ppRxChn)->flows;
+
+            DBG("CpswgCmd(): k3_udma_glue_request_tx_chn(): udma_rflow_id:0x%x, rx_flow_id_base:0x%x, ringrx:0x%x::0x%px, ringrxfdq:0x%x::0x%px\n",
+            pData->udma_rflow_id, rx_flow_id_base,
+            pData->ringrx->ring_id, (unsigned char*)NULL + pData->ringrx->ring_mem_dma,
+            pData->ringrxfdq->ring_id, (unsigned char*)NULL + pData->ringrxfdq->ring_mem_dma);
+
+            oConfig.dwChanId = pData->udma_rflow_id;
+            oConfig.dwRingId = pData->ringrx->ring_id;
+            oConfig.qwRingDma = pData->ringrx->ring_mem_dma;
+            oConfig.dwRingSize = pData->ringrx->size;
+            oConfig.dwRingFdqId = pData->ringrxfdq->ring_id;
+            oConfig.qwRingFdqDma = pData->ringrxfdq->ring_mem_dma;
+            oConfig.dwRingFdqSize = pData->ringrxfdq->size;
+            oConfig.dwFlowIdBase = rx_flow_id_base;
+
+            nRetVal = copy_to_user((ATEMSYS_T_CPSWG_CMD *)arg, &oConfig, sizeof(ATEMSYS_T_CPSWG_CMD));
+            if (0 != nRetVal)
+            {
+                ERR("CpswgCmd(): copy_to_user() failed: %d\n", nRetVal);
+            }
+        }
+    } break;
+    case ATEMSYS_CPSWG_CMD_ENABLE_TX:
+    {
+        if (NULL == *ppTxChn)
+        {
+            nRetVal = -1;
+            ERR("CpswgCmd(): tx channel not ready %d\n", nRetVal);
+            goto Exit;
+        }
+        nRetVal = k3_udma_glue_enable_tx_chn(*ppTxChn);
+        if (nRetVal)
+        {
+            ERR("CpswgCmd(): k3_udma_glue_enable_tx_chn() failed %d\n", nRetVal);
+            goto Exit;
+        }
+
+    } break;
+    case ATEMSYS_CPSWG_CMD_ENABLE_RX:
+    {
+        if (NULL == *ppRxChn)
+        {
+            nRetVal = -1;
+            ERR("CpswgCmd(): rx channel not ready %d\n", nRetVal);
+            goto Exit;
+        }
+        nRetVal = k3_udma_glue_enable_rx_chn(*ppRxChn);
+        if (nRetVal) {
+            ERR("CpswgCmd(): k3_udma_glue_enable_rx_chn() failed %d\n", nRetVal);
+            goto Exit;
+        }
+
+    } break;
+    case ATEMSYS_CPSWG_CMD_DISABLE_TX:
+    {
+        if (NULL == *ppTxChn)
+        {
+            nRetVal = -1;
+            ERR("CpswgCmd(): tx channel not ready %d\n", nRetVal);
+            goto Exit;
+        }
+        //for (i = 0; i < tx_ch_num; i++)
+            k3_udma_glue_tdown_tx_chn(*ppTxChn, false);
+
+        //for (i = 0; i < tx_ch_num; i++)
+        {
+            k3_udma_glue_reset_tx_chn(*ppTxChn, NULL, cleanup);
+            k3_udma_glue_disable_tx_chn(*ppTxChn);
+        }
+    } break;
+    case ATEMSYS_CPSWG_CMD_DISABLE_RX:
+    {
+        int i = 0;
+        if (NULL == *ppRxChn)
+        {
+            nRetVal = -1;
+            ERR("CpswgCmd(): rx channel not ready %d\n", nRetVal);
+            goto Exit;
+        }
+        k3_udma_glue_tdown_rx_chn(*ppRxChn, true);
+        for (i = 0; i < AM65_CPSW_MAX_RX_FLOWS; i++)
+            k3_udma_glue_reset_rx_chn(*ppRxChn, i, NULL, cleanup, !!i);
+
+        k3_udma_glue_disable_rx_chn(*ppRxChn);
+    } break;
+    case ATEMSYS_CPSWG_CMD_RELEASE_TX:
+    {
+        if (NULL == *ppTxChn)
+        {
+            nRetVal = -1;
+            ERR("CpswgCmd(): tx channel not ready %d\n", nRetVal);
+            goto Exit;
+        }
+        k3_udma_glue_release_tx_chn(*ppTxChn);
+        *ppTxChn = NULL;
+    } break;
+    case ATEMSYS_CPSWG_CMD_RELEASE_RX:
+    {
+        if (NULL == *ppRxChn)
+        {
+            nRetVal = -1;
+            ERR("CpswgCmd(): rx channel not ready %d\n", nRetVal);
+            goto Exit;
+        }
+        k3_udma_glue_release_rx_chn(*ppRxChn);
+        *ppRxChn = NULL;
+    } break;
+    }
+
+
+
+Exit:
+    return nRetVal;
+}
+
+
+
+static void CleanCpswgCmd(ATEMSYS_T_DEVICE_DESC* pDevDesc)
+{
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
+    ATEMSYS_T_CPSWG_CMD oConfig;
+    unsigned int dwChannelIdx = 0;
+    unsigned int dwIndex = 0;
+    if (pDevDesc == NULL)
+    {
+       return;
+    }
+    for (dwIndex = 0; dwIndex < ATEMSYS_MAX_NUMBER_DRV_INSTANCES; dwIndex++)
+    {
+        if ((NULL != S_apDrvDescPrivate[dwIndex]) && pDevDesc == S_apDrvDescPrivate[dwIndex]->pDevDesc)
+        {
+            pDrvDescPrivate = S_apDrvDescPrivate[dwIndex];
+            break;
+        }
+    }
+    if (pDrvDescPrivate == NULL)
+    {
+        return;
+    }
+    for (dwChannelIdx = 0; ATEMSYS_UDMA_CHANNELS > dwChannelIdx; dwChannelIdx++)
+    {
+        void** ppvTxChn = &pDrvDescPrivate->apvTxChan[dwChannelIdx];
+        void** ppvRxChn = &pDrvDescPrivate->apvRxChan[dwChannelIdx];
+
+        if ((NULL != ppvTxChn) && (NULL != *ppvTxChn))
+        {
+            memset(&oConfig, 0, sizeof(ATEMSYS_T_CPSWG_CMD));
+            oConfig.dwIndex = dwIndex;
+            oConfig.dwChannelIdx = dwChannelIdx;
+            oConfig.dwCmd = ATEMSYS_CPSWG_CMD_DISABLE_TX;
+            CpswgCmd(NULL,  &oConfig);
+            oConfig.dwCmd = ATEMSYS_CPSWG_CMD_RELEASE_TX;
+            CpswgCmd(NULL,  &oConfig);
+        }
+        if ((NULL != ppvRxChn) && (NULL != *ppvRxChn))
+        {
+            memset(&oConfig, 0, sizeof(ATEMSYS_T_CPSWG_CMD));
+            oConfig.dwIndex = dwIndex;
+            oConfig.dwChannelIdx = dwChannelIdx;
+            oConfig.dwCmd = ATEMSYS_CPSWG_CMD_DISABLE_RX;
+            CpswgCmd(NULL,  &oConfig);
+            oConfig.dwCmd = ATEMSYS_CPSWG_CMD_RELEASE_RX;
+            CpswgCmd(NULL,  &oConfig);
+        }
+    }
+}
+#endif /*#ifdef CONFIG_TI_K3_UDMA*/
+
+
+static int IoMemCmd(void* arg)
+{
+    ATEMSYS_T_IOMEM_CMD oIoMem;
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
+    unsigned int dwRetVal = 0;
+    int nRetVal = -1;
+    unsigned int dwIndex = 0;
+    nRetVal = copy_from_user(&oIoMem, (unsigned long long *)arg, sizeof(ATEMSYS_T_IOMEM_CMD));
+    if (0 != nRetVal)
+    {
+        goto Exit;
+    }
+    if (oIoMem.dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
+    {
+        dwRetVal = 0x98110002; /* EC_E_INVALIDINDEX */
+        nRetVal = 0;
+        goto Exit;
+    }
+    pDrvDescPrivate = S_apDrvDescPrivate[oIoMem.dwIndex];
+    if (NULL == pDrvDescPrivate)
+    {
+        ERR("IoMemCmd(): cant find instance\n");
+        nRetVal = -EBUSY;
+        goto Exit;
+    }
+
+
+    if (ATEMSYS_IOMEM_CMD_MAP_PERMANENT == oIoMem.dwCmd)
+    {
+        for (dwIndex = 0; IOMEMLIST_LENGTH>dwIndex; dwIndex++)
+        {
+            if (NULL == pDrvDescPrivate->oIoMemList[dwIndex].pbyBase)
+            {
+                break;
+            }
+        }
+        if (IOMEMLIST_LENGTH < dwIndex)
+        {
+            nRetVal = -EFAULT;
+            goto Exit;
+        }
+        pDrvDescPrivate->oIoMemList[dwIndex].pbyBase = devm_ioremap(&pDrvDescPrivate->pPDev->dev, oIoMem.qwPhys, oIoMem.dwSize);
+        if (NULL == pDrvDescPrivate->oIoMemList[dwIndex].pbyBase )
+        {
+            pDrvDescPrivate->oIoMemList[dwIndex].pbyBase = NULL;
+            nRetVal = -ENOMEM;;
+            goto Exit;
+        }
+        pDrvDescPrivate->oIoMemList[dwIndex].qwPhys = oIoMem.qwPhys;
+        pDrvDescPrivate->oIoMemList[dwIndex].dwSize = oIoMem.dwSize;
+        DBG("IoMemCmd(): ATEMSYS_IOMEM_CMD_MAP_PERMANENT Virt:0x%px, Phys:0x%px, Size:0x%08x\n", pDrvDescPrivate->oIoMemList[dwIndex].pbyBase, (unsigned char*)NULL + oIoMem.qwPhys, oIoMem.dwSize);
+    }
+    else
+    {
+        for (dwIndex = 0; IOMEMLIST_LENGTH>dwIndex; dwIndex++)
+        {
+            if (pDrvDescPrivate->oIoMemList[dwIndex].qwPhys == oIoMem.qwPhys)
+            {
+                break;
+            }
+        }
+        if (IOMEMLIST_LENGTH == dwIndex)
+        {
+            nRetVal = EFAULT;
+            goto Exit;
+        }
+
+        if (ATEMSYS_IOMEM_CMD_UNMAP_PERMANENT == oIoMem.dwCmd)
+        {
+            devm_iounmap(&pDrvDescPrivate->pPDev->dev, pDrvDescPrivate->oIoMemList[dwIndex].pbyBase);
+            pDrvDescPrivate->oIoMemList[dwIndex].pbyBase = NULL;
+            pDrvDescPrivate->oIoMemList[dwIndex].qwPhys = 0;
+            pDrvDescPrivate->oIoMemList[dwIndex].dwSize = 0;
+        }
+        else
+        {
+            if (ATEMSYS_IOMEM_CMD_WRITE == oIoMem.dwCmd)
+            {
+                if (sizeof(unsigned int)/* 4 */  == oIoMem.dwDataSize)
+                    *(unsigned int*)(pDrvDescPrivate->oIoMemList[dwIndex].pbyBase + oIoMem.dwOffset) = oIoMem.dwData[0];
+                else if (sizeof(unsigned long long)/* 8 */ == oIoMem.dwDataSize)
+                {
+                    *(unsigned long long*)(pDrvDescPrivate->oIoMemList[dwIndex].pbyBase + oIoMem.dwOffset) = *(unsigned long long*)&oIoMem.dwData[0];
+                }
+                else
+                {
+                    int i = 0;
+                    for (i = 0; i < oIoMem.dwDataSize; i++)
+                    {
+                        ((unsigned char*)(pDrvDescPrivate->oIoMemList[dwIndex].pbyBase + oIoMem.dwOffset))[i] = ((unsigned char*)oIoMem.dwData)[i];
+                    }
+                }
+            }
+            else if (ATEMSYS_IOMEM_CMD_READ == oIoMem.dwCmd)
+            {
+                if (sizeof(unsigned int)/* 4 */ == oIoMem.dwDataSize)
+                    oIoMem.dwData[0] = *(unsigned int*)(pDrvDescPrivate->oIoMemList[dwIndex].pbyBase + oIoMem.dwOffset);
+                else
+                {
+                    int i = 0;
+                    for (i = 0; i < oIoMem.dwDataSize; i++)
+                    {
+                        ((unsigned char*)oIoMem.dwData)[i] = ((unsigned char*)(pDrvDescPrivate->oIoMemList[dwIndex].pbyBase + oIoMem.dwOffset))[i];
+                    }
+                }
+                nRetVal = copy_to_user((unsigned long long *)arg, &oIoMem, sizeof(ATEMSYS_T_IOMEM_CMD));
+                if (0 != nRetVal)
+                {
+                    goto Exit;
+                }
+            }
+        }
+    }
+    nRetVal = 0;
+Exit:
+        return nRetVal;
+}
+
+static void CleanIoMemCmd(ATEMSYS_T_DEVICE_DESC* pDevDesc)
+{
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
+    unsigned int dwIndex = 0;
+    if (pDevDesc == NULL)
+    {
+        return;
+    }
+    for (dwIndex = 0; dwIndex < ATEMSYS_MAX_NUMBER_DRV_INSTANCES; dwIndex++)
+    {
+        pDrvDescPrivate = S_apDrvDescPrivate[dwIndex];
+        if (NULL == pDrvDescPrivate)
+            continue;
+        if (pDrvDescPrivate->pDevDesc == pDevDesc)
+            break;
+        pDrvDescPrivate = NULL;
+    }
+    if (NULL == pDrvDescPrivate)
+    {
+        return;
+    }
+    for (dwIndex = 0; IOMEMLIST_LENGTH>dwIndex; dwIndex++)
+    {
+        if (NULL != pDrvDescPrivate->oIoMemList[dwIndex].pbyBase )
+        {
+            devm_iounmap(&pDrvDescPrivate->pPDev->dev, pDrvDescPrivate->oIoMemList[dwIndex].pbyBase);
+            pDrvDescPrivate->oIoMemList[dwIndex].pbyBase = NULL;
+            pDrvDescPrivate->oIoMemList[dwIndex].qwPhys = 0;
+            pDrvDescPrivate->oIoMemList[dwIndex].dwSize = 0;
+        }
+    }
+}
+#endif /*#ifdef INCLUDE_ATEMSYS_DT_DRIVER)*/
+
+
 #if ((defined CONFIG_SMP) && (LINUX_VERSION_CODE > KERNEL_VERSION(5,14,0)))
 static int SetIntCpuAffinityIoctl(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlParam, size_t size)
 {
@@ -1726,6 +2370,12 @@ static int device_release(struct inode* inode, struct file* file)
        dev_int_disconnect(pDevDesc);
 
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
+       CleanIoMemCmd(pDevDesc);
+
+ #ifdef CONFIG_TI_K3_UDMA
+       CleanCpswgCmd(pDevDesc);
+ #endif
+
        CleanUpEthernetDriverOnRelease(pDevDesc);
 #endif
 
@@ -2398,6 +3048,29 @@ static long atemsys_ioctl(
 #endif
 
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
+    case ATEMSYS_IOCTL_IOMEM_CMD:
+    {
+        nRetVal = IoMemCmd((void*)arg);
+        if (0 != nRetVal)
+        {
+            ERR("ioctl ATEMSYS_IOCTL_IOMEM_CMD failed: 0x%x\n", nRetVal);
+            goto Exit;
+        }
+    } break;
+
+
+#ifdef CONFIG_TI_K3_UDMA
+    case ATEMSYS_IOCTL_CPSWG_CMD:
+    {
+        nRetVal = CpswgCmd((__u32*)arg, NULL);
+        if (0 != nRetVal)
+        {
+            ERR("ioctl ATEMSYS_IOCTL_CPSWG_CMD failed: 0x%x\n", nRetVal);
+            goto Exit;
+        }
+    } break;
+#endif /*#ifdef CONFIG_TI_K3_UDMA*/
+
     case ATEMSYS_IOCTL_GET_MAC_INFO:
     {
         nRetVal = GetMacInfoIoctl(pDevDesc, arg);
@@ -3301,7 +3974,9 @@ static int ResetPhyViaGpio(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
 
     gpio_set_value_cansleep(pDrvDescPrivate->nPhyResetGpioPin, !pDrvDescPrivate->bPhyResetGpioActiveHigh);
 
+#if (LINUX_VERSION_CODE <= KERNEL_VERSION(6,0,0))
     devm_gpio_free(&pDrvDescPrivate->pPDev->dev, pDrvDescPrivate->nPhyResetGpioPin);
+#endif
 
     if (!pDrvDescPrivate->nPhyResetPostDelay)
         return 0;
