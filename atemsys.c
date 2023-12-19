@@ -1561,7 +1561,7 @@ Exit:
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
 #ifdef CONFIG_TI_K3_UDMA
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(5,11,0)) || (LINUX_VERSION_CODE == KERNEL_VERSION(5,10,168))
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(5,10,0))
  #define CPSWG_STRUCT_VERSION_2 1
 #endif
 
@@ -4182,6 +4182,13 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
         /* get phy-mode */
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,5,0))
         nRes = of_get_phy_mode(pPDev->dev.of_node, &pDrvDescPrivate->PhyInterface);
+        if ((strcmp(pDrvDescPrivate->MacInfo.szIdent, "CPSWG") == 0) && (0==pDrvDescPrivate->PhyInterface))
+        {
+            struct device_node* pDevNodeNew = pDevNode;
+            pDevNodeNew = of_get_child_by_name(pDevNodeNew, "ethernet-ports");
+            pDevNodeNew = of_get_child_by_name(pDevNodeNew, "port");
+            nRes = of_get_phy_mode(pDevNodeNew, &pDrvDescPrivate->PhyInterface);
+        }
 #else
         pDrvDescPrivate->PhyInterface = of_get_phy_mode(pPDev->dev.of_node);
 #endif
@@ -4234,6 +4241,13 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
         /* PHY address*/
         pDrvDescPrivate->MacInfo.dwPhyAddr = PHY_AUTO_ADDR;
         pDrvDescPrivate->pPhyNode = of_parse_phandle(pDevNode, "phy-handle", 0);
+        if ((strcmp(pDrvDescPrivate->MacInfo.szIdent, "CPSWG") == 0) && (NULL == pDrvDescPrivate->pPhyNode))
+        {
+            struct device_node* pDevNodeNew = pDevNode;
+            pDevNodeNew = of_get_child_by_name(pDevNodeNew, "ethernet-ports");
+            pDevNodeNew = of_get_child_by_name(pDevNodeNew, "port");
+            pDrvDescPrivate->pPhyNode = of_parse_phandle(pDevNodeNew, "phy-handle", 0);
+        }
         if (NULL != pDrvDescPrivate->pPhyNode)
         {
             nRes = of_property_read_u32(pDrvDescPrivate->pPhyNode, "reg", &dwTemp);
@@ -4345,6 +4359,14 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
        || strcmp(pDrvDescPrivate->MacInfo.szIdent, "ICSS") == 0)
     {
         of_platform_populate(pDevNode, NULL, NULL, &pPDev->dev);
+        DBG("%s: start drivers of sub-nodes.\n", pPDev->name );
+    }
+    if (strcmp(pDrvDescPrivate->MacInfo.szIdent, "CPSWG") == 0)
+    {
+        /* in subnode "ethernet-ports" start driver for "port@2" */
+        struct device_node* pDevNodeNew = pDevNode;
+        pDevNodeNew = of_get_child_by_name(pDevNodeNew, "ethernet-ports");
+        of_platform_populate(pDevNodeNew, NULL, NULL, &pPDev->dev);
         DBG("%s: start drivers of sub-nodes.\n", pPDev->name );
     }
 
