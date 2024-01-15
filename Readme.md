@@ -155,13 +155,3 @@ ethernet@02188000 {
 </code></pre>
 
 
-### Kernel Modul Parameters
-
-<strong>loglevel:</strong>
-Set atemsys log level (Default <code>KERN_INFO(6)</code>) according kernel log level definition.<br>
-Example: <code>insmod atemsys loglevel=3</code>
-
-<strong>AllowedPciDevices:</strong>
-Select PCI / PCIe devices to be registered by atemsys. By default all PCI network devices are registered. Passing an empty string turns off the PCI driver registration. A semicolon separated list of devices defined by the following format can be passed:<br>
-<code>\<domain\>:\<bus\>:\<device\>.\<func\></code><br>
-Example: <code>insmod atemsys AllowedPciDevices="0000:01:00.0;0000:02:00.0"</code>
