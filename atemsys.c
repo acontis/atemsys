@@ -978,7 +978,7 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
 
     switch (dwAtemsysApiVersion)
     {
-    case sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00):
+    case EC_ATEMSYSVERSION(1,0,0):
     {
         ATEMSYS_T_PCI_SELECT_DESC_v1_0_00 oPciDesc_v1_0_00;
         memset(&oPciDesc_v1_0_00, 0, sizeof(ATEMSYS_T_PCI_SELECT_DESC_v1_0_00));
@@ -2581,8 +2581,11 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
    }
 
    dwLen = PAGE_UP(vma->vm_end - vma->vm_start);
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,3,0))
+   vm_flags_set(vma, VM_RESERVED | VM_LOCKED | VM_DONTCOPY);
+#else
    vma->vm_flags |= VM_RESERVED | VM_LOCKED | VM_DONTCOPY;
+#endif 
 
    if (vma->vm_pgoff != 0)
    {
@@ -2639,7 +2642,12 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
 #endif /* CONFIG_PCI */
 
       /* avoid swapping, request IO memory */
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,3,0))
+      vm_flags_set(vma, VM_IO);
+#else
       vma->vm_flags |= VM_IO;
+#endif 
 
       /*
        * avoid caching (this is at least needed for POWERPC,
@@ -4758,7 +4766,11 @@ int init_module(void)
     }
 #endif
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,4,0))
+    S_pDevClass = class_create(ATEMSYS_DEVICE_NAME);
+#else
     S_pDevClass = class_create(THIS_MODULE, ATEMSYS_DEVICE_NAME);
+#endif
     if (IS_ERR(S_pDevClass))
     {
         INF("class_create failed\n");
