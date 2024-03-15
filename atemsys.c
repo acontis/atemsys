@@ -779,7 +779,7 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
 
     /* remove wrong dma_coherent bit on ARM systems */
 #if ((defined __aarch64__) || (defined __arm__))
- #if (LINUX_VERSION_CODE < KERNEL_VERSION(4,15,0))
+ #if (LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0))
   #if (defined CONFIG_PHYS_ADDR_T_64BIT)
     if (is_device_dma_coherent(&pPciDev->dev))
     {
@@ -787,7 +787,8 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
         INF("%s: DefaultPciSettings: Clear device.archdata dma_coherent bit!\n", pci_name(pPciDev));
     }
   #endif
- #else
+ #endif
+ #if (LINUX_VERSION_CODE > KERNEL_VERSION(5,0,0))
   #if ((defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_DEVICE) || defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU) || defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU_ALL)))
     if (0 != pPciDev->dev.dma_coherent)
     {
@@ -1684,8 +1685,6 @@ struct k3_udma_glue_rx_channel {
 #define AM65_CPSW_NAV_SW_DATA_SIZE 16
 #define AM65_CPSW_MAX_RX_FLOWS  1
 
-#include "../drivers/dma/ti/k3-udma.h"
-
 #include <linux/dma/k3-udma-glue.h>
 void cleanup(void *data, dma_addr_t desc_dma)
 {
@@ -1838,6 +1837,11 @@ static int CpswgCmd(void* arg,  ATEMSYS_T_CPSWG_CMD* pConfig)
                 .src_tag_lo_sel = K3_UDMA_GLUE_SRC_TAG_LO_USE_REMOTE_SRC_TAG,
             };
 
+            if (oConfig.bRingFdqUsingRingMode)
+            {
+                rx_flow_cfg.rxfdq_cfg.mode = K3_RINGACC_RING_MODE_RING;
+            }
+
             rx_flow_cfg.ring_rxfdq0_id = fdqring_id;
             rx_flow_cfg.rx_cfg.size = oConfig.dwRingSize;
             rx_flow_cfg.rxfdq_cfg.size = oConfig.dwRingSize;
@@ -1873,6 +1877,7 @@ static int CpswgCmd(void* arg,  ATEMSYS_T_CPSWG_CMD* pConfig)
             oConfig.qwRingFdqDma = pData->ringrxfdq->ring_mem_dma;
             oConfig.dwRingFdqSize = pData->ringrxfdq->size;
             oConfig.dwFlowIdBase = rx_flow_id_base;
+            oConfig.bRingFdqUsingRingMode = 0;
 
             nRetVal = copy_to_user((ATEMSYS_T_CPSWG_CMD *)arg, &oConfig, sizeof(ATEMSYS_T_CPSWG_CMD));
             if (0 != nRetVal)

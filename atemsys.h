@@ -120,6 +120,8 @@
  *            Add Device Tree Ethernet driver support for CPSWG
  *  V1.4.28 - Fix for PCIe compatibility with Atemsys before V1.3.5,
  *          - Fix for Kernel > 6.05.00
+ *  V1.4.29 - Add support for TI AM64 CPSWG
+ *          - Fix PCI dma_coherent bit handling for Kernel between 4.15.0 and 5.4.0
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -134,10 +136,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.28"
-#define ATEMSYS_VERSION_NUM  1,4,28
+#define ATEMSYS_VERSION_STR "1.4.29"
+#define ATEMSYS_VERSION_NUM  1,4,29
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,28)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,29)
 #endif
 
 /* support selection */
@@ -419,9 +421,10 @@ typedef struct
     __u64                       qwRingFdqDma;                       /* [in]     2. ring physical memory address */
     __u32                       dwRingFdqSize;                      /* [in/put] 2. ring size / number of elements */
     __u32                       dwRingFdqId;                        /* [in]     2. ring index */
-    __u32                       dwChanId;                           /* [in]     2. ring index */
-    __u32                       dwFlowIdBase;                       /* [in]     2. ring index */
-    __u32                       dwReserved[32];
+    __u32                       dwChanId;                           /* [in]     Channel index */
+    __u32                       dwFlowIdBase;                       /* [in]     Flow index */
+    __u32                       bRingFdqUsingRingMode;              /* [in/out] RingMode of RingFdq set to RING_MODE_RING */
+    __u32                       dwReserved[31];
 } __attribute__((packed)) ATEMSYS_T_CPSWG_CMD;
 
 #endif  /* ATEMSYS_H */
