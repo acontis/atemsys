@@ -31,4 +31,4 @@ modules_install:
 	$(MAKE) -C $(KERNELDIR) M=$(shell pwd) modules_install
 
 clean:
-	$(MAKE) -C $(KERNELDIR) M=$(shell pwd) modules clean
+	$(MAKE) -C $(KERNELDIR) M=$(shell pwd) clean
