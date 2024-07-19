@@ -122,6 +122,8 @@
  *          - Fix for Kernel > 6.05.00
  *  V1.4.29 - Add support for TI AM64 CPSWG
  *          - Fix PCI dma_coherent bit handling for Kernel between 4.15.0 and 5.4.0
+ *  V1.4.30 - Fix for Kernel > 6.4.00
+ *          - Fix for systems without 32-bit DMA
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -136,10 +138,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.29"
-#define ATEMSYS_VERSION_NUM  1,4,29
+#define ATEMSYS_VERSION_STR "1.4.30"
+#define ATEMSYS_VERSION_NUM  1,4,30
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,29)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,30)
 #endif
 
 /* support selection */

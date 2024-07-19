@@ -2703,9 +2703,23 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
          pVa = dma_alloc_coherent(&pDevDesc->pPcidev->dev, dwLen, &dmaAddr, GFP_KERNEL);
          if (NULL == pVa)
          {
-            ERR("mmap: dma_alloc_coherent failed\n");
-            nRet = -ENOMEM;
-            goto Exit;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,12,55))
+            if (dma_get_mask(&pDevDesc->pPcidev->dev) != DMA_BIT_MASK(64))
+            {
+                int nRes = 0;
+                nRes = dma_set_mask_and_coherent(&pDevDesc->pPcidev->dev, DMA_BIT_MASK(64));
+                if (!nRes)
+                {
+                    pVa = dma_alloc_coherent(&pDevDesc->pPcidev->dev, dwLen, &dmaAddr, GFP_KERNEL);
+                }
+            }
+            if (NULL == pVa)
+#endif
+            {
+                ERR("mmap: dma_alloc_coherent failed\n");
+                nRet = -ENOMEM;
+                goto Exit;
+            }
          }
 #else
          pVa = pci_alloc_consistent(pDevDesc->pPcidev, dwLen, &dmaAddr);
@@ -4543,7 +4557,9 @@ static void PciDriverRemove(struct pci_dev* pPciDev)
     /* disable device */
     pci_disable_msi(pPciDev);
     pci_release_regions(pPciDev);
+#if (LINUX_VERSION_CODE <= KERNEL_VERSION(6,4,0))
     pci_disable_pcie_error_reporting(pPciDev);
+#endif
     pci_disable_device(pPciDev);
 
     INF("%s: %s: disconnected\n", pci_name(pPciDev), ATEMSYS_PCI_DRIVER_NAME);
@@ -4579,7 +4595,9 @@ static int PciDriverProbe(struct pci_dev* pPciDev, const struct pci_device_id* i
         goto Exit;
     }
     pci_save_state(pPciDev);
+#if (LINUX_VERSION_CODE <= KERNEL_VERSION(6,4,0))
     pci_enable_pcie_error_reporting(pPciDev);
+#endif
     nRes = pci_request_regions(pPciDev, ATEMSYS_DEVICE_NAME);
     if (nRes < 0)
     {
