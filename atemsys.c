@@ -1,8 +1,21 @@
 /*-----------------------------------------------------------------------------
  * atemsys.c
- * Copyright (c) 2009 - 2020 acontis technologies GmbH, Ravensburg, Germany
+ * Copyright (c) 2009 - 2024 acontis technologies GmbH, Weingarten, Germany
  * All rights reserved.
  *
+ * SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note
+ *
+ *  NOTE! This copyright does *not* cover user programs that use kernel
+ * services by normal system calls - this is merely considered normal use
+ * of the kernel, and does *not* fall under the heading of "derived work".
+ * Also note that the GPL below is copyrighted by the Free Software
+ * Foundation, but the instance of code that it refers to (the Linux
+ * kernel) is copyrighted by me and others who actually wrote it.
+ * 
+ * Also note that the only valid version of the GPL as far as the kernel
+ * is concerned is _this_ particular version of the license (ie v2, not
+ * v2.2 or v3.x or whatever), unless explicitly otherwise stated.
+ * 
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
  * Free Software Foundation;  either version 2 of the  License, or (at your
