@@ -11,11 +11,11 @@
  * Also note that the GPL below is copyrighted by the Free Software
  * Foundation, but the instance of code that it refers to (the Linux
  * kernel) is copyrighted by me and others who actually wrote it.
- * 
+ *
  * Also note that the only valid version of the GPL as far as the kernel
  * is concerned is _this_ particular version of the license (ie v2, not
  * v2.2 or v3.x or whatever), unless explicitly otherwise stated.
- * 
+ *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
  * Free Software Foundation;  either version 2 of the  License, or (at your
@@ -131,12 +131,15 @@
  *  V1.4.27 - Fix ATEMSYS_IOCTL_CPSWG_CMD kernel version,
  *            Add Device Tree Ethernet driver support for CPSWG
  *  V1.4.28 - Fix for PCIe compatibility with Atemsys before V1.3.5,
- *          - Fix for Kernel > 6.05.00
+ *            Fix for Kernel > 6.05.00
  *  V1.4.29 - Add support for TI AM64 CPSWG
- *          - Fix PCI dma_coherent bit handling for Kernel between 4.15.0 and 5.4.0
+ *            Fix PCI dma_coherent bit handling for Kernel between 4.15.0 and 5.4.0
  *  V1.4.30 - Fix for Kernel > 6.4.00
- *          - Fix for systems without 32-bit DMA
+ *            Fix for systems without 32-bit DMA
  *  V1.4.31 - Add license for user space API
+ *  V1.4.32 - Add support for dsa driver with Device Tree (insmod atemsys bRegisterDtbNetDevice=1)
+ *            Fix Device Tree support for Kernel > 6.1.00
+ *            Add support for TI AM64 CPSWG Second Port
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -151,10 +154,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.31"
-#define ATEMSYS_VERSION_NUM  1,4,31
+#define ATEMSYS_VERSION_STR "1.4.32"
+#define ATEMSYS_VERSION_NUM  1,4,32
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,31)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,32)
 #endif
 
 /* support selection */

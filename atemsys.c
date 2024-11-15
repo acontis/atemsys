@@ -11,11 +11,11 @@
  * Also note that the GPL below is copyrighted by the Free Software
  * Foundation, but the instance of code that it refers to (the Linux
  * kernel) is copyrighted by me and others who actually wrote it.
- * 
+ *
  * Also note that the only valid version of the GPL as far as the kernel
  * is concerned is _this_ particular version of the license (ie v2, not
  * v2.2 or v3.x or whatever), unless explicitly otherwise stated.
- * 
+ *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
  * Free Software Foundation;  either version 2 of the  License, or (at your
@@ -177,7 +177,21 @@
 #include <asm/param.h>
 #include <linux/of_gpio.h>
 #include <linux/reset.h>
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,5,0))
+#include <linux/of_platform.h>
 #endif
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0) /* not tested */)
+#define INCLUDE_ATEMSYS_DT_REGISTER_NETDEVICE    1
+#include <linux/netdevice.h>
+#include <linux/etherdevice.h>
+struct _ATEMSYS_T_DRV_DESC_PRIVATE;
+int RegisterEthernetDriverAsNetDevice(struct device_node* pDevNode, struct _ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDesc);
+#endif
+
+#endif /* CONFIG_OF */
+
 #if ((defined CONFIG_PCI) \
        && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,4,0) /* not tested */))
 #define INCLUDE_ATEMSYS_PCI_DRIVER    1
@@ -239,6 +253,12 @@ MODULE_PARM_DESC(AllowedPciDevices, "Bind only pci devices in semicolon separate
 static int loglevel = LOGLEVEL_INFO;
 module_param(loglevel, int, 0);
 MODULE_PARM_DESC(loglevel, "Set log level default LOGLEVEL_INFO, see /include/linux/kern_levels.h");
+
+#ifdef INCLUDE_ATEMSYS_DT_REGISTER_NETDEVICE
+static bool bRegisterDtbNetDevice = false;
+module_param(bRegisterDtbNetDevice, bool, false);
+MODULE_PARM_DESC(bRegisterDtbNetDevice, "Register netdevice on device tree nodes (dsa driver support)");
+#endif
 
 #if (defined CONFIG_XENO_COBALT)
 #define PRINTK(prio, str, ...) rtdm_printk(prio ATEMSYS_DEVICE_NAME ": " str,  ##__VA_ARGS__)
@@ -1712,6 +1732,7 @@ static int CpswgCmd(void* arg,  ATEMSYS_T_CPSWG_CMD* pConfig)
     __u32* pnRxIrq;
     ATEMSYS_T_CPSWG_CMD oConfig;
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivateMainEntry = NULL;
     unsigned int dwRetVal = 0x98110000; /* EC_E_ERROR */
     int nRetVal = -1;
     memset(&oConfig, 0, sizeof(ATEMSYS_T_CPSWG_CMD));
@@ -1743,6 +1764,27 @@ static int CpswgCmd(void* arg,  ATEMSYS_T_CPSWG_CMD* pConfig)
         nRetVal = -EBUSY;
         goto Exit;
     }
+    pDrvDescPrivateMainEntry = pDrvDescPrivate;
+
+    /* use CPSWG Instance 0 for allocation, if there is one */
+    if (0 != oConfig.dwIndex)
+    {
+        unsigned int dwIndex = 0;
+        ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivateTmp = NULL;
+
+        for (dwIndex = 0; dwIndex < ATEMSYS_MAX_NUMBER_DRV_INSTANCES; dwIndex++)
+        {
+            pDrvDescPrivateTmp = S_apDrvDescPrivate[dwIndex];
+            if (NULL == pDrvDescPrivateTmp)
+                continue;
+
+            if ((0 == pDrvDescPrivateTmp->MacInfo.dwInstance) && (0 == strcmp(pDrvDescPrivateTmp->MacInfo.szIdent,"CPSWG")))
+            {
+                pDrvDescPrivateMainEntry = S_apDrvDescPrivate[dwIndex];
+                break;
+            }
+        }
+    }
 
     DBG("CpswgCmd(): dwCmd: %d\n", oConfig.dwCmd);
     ppTxChn = (struct k3_udma_glue_tx_channel**)&pDrvDescPrivate->apvTxChan[oConfig.dwChannelIdx];
@@ -1771,7 +1813,7 @@ static int CpswgCmd(void* arg,  ATEMSYS_T_CPSWG_CMD* pConfig)
         tx_cfg.txcq_cfg.size = oConfig.dwRingSize;
         snprintf(tx_chn_name, sizeof(tx_chn_name), "tx%d", 0);
 
-        *ppTxChn = k3_udma_glue_request_tx_chn(&pDrvDescPrivate->pPDev->dev,
+        *ppTxChn = k3_udma_glue_request_tx_chn(&pDrvDescPrivateMainEntry->pPDev->dev,
                             tx_chn_name,
                             &tx_cfg);
         if (IS_ERR(*ppTxChn))
@@ -1821,7 +1863,7 @@ static int CpswgCmd(void* arg,  ATEMSYS_T_CPSWG_CMD* pConfig)
         rx_cfg.flow_id_num = AM65_CPSW_MAX_RX_FLOWS;
         rx_cfg.flow_id_base = rx_flow_id_base;
 
-        *ppRxChn = k3_udma_glue_request_rx_chn(&pDrvDescPrivate->pPDev->dev, "rx", &rx_cfg);
+        *ppRxChn = k3_udma_glue_request_rx_chn(&pDrvDescPrivateMainEntry->pPDev->dev, "rx", &rx_cfg);
         if (IS_ERR(*ppRxChn)) {
             ERR("CpswgCmd(): Failed to request rx dma channel %ld\n", PTR_ERR(*ppRxChn));
            *ppRxChn = NULL;
@@ -2603,7 +2645,7 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
    vm_flags_set(vma, VM_RESERVED | VM_LOCKED | VM_DONTCOPY);
 #else
    vma->vm_flags |= VM_RESERVED | VM_LOCKED | VM_DONTCOPY;
-#endif 
+#endif
 
    if (vma->vm_pgoff != 0)
    {
@@ -2665,7 +2707,7 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
       vm_flags_set(vma, VM_IO);
 #else
       vma->vm_flags |= VM_IO;
-#endif 
+#endif
 
       /*
        * avoid caching (this is at least needed for POWERPC,
@@ -3669,14 +3711,22 @@ static int MdioProbe(struct net_device* ndev)
             {
                 continue;
             }
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0))
+            strscpy(mdio_bus_id, pDrvDescPrivate->pMdioBus->id, MII_BUS_ID_SIZE);
+#else
             strlcpy(mdio_bus_id, pDrvDescPrivate->pMdioBus->id, MII_BUS_ID_SIZE);
+#endif
             break;
         }
 
         if (nPhy_id >= PHY_MAX_ADDR)
         {
             INF("%s: no PHY, assuming direct connection to switch\n", pDrvDescPrivate->pPDev->name);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0))
+            strscpy(mdio_bus_id, "fixed-0", MII_BUS_ID_SIZE);
+#else
             strlcpy(mdio_bus_id, "fixed-0", MII_BUS_ID_SIZE);
+#endif
             nPhy_id = 0;
         }
 
@@ -4394,6 +4444,14 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
         return EthernetDriverRemove(pPDev);
     }
 
+#ifdef INCLUDE_ATEMSYS_DT_REGISTER_NETDEVICE
+    /* register node as net_device */
+    if (bRegisterDtbNetDevice)
+    {
+        RegisterEthernetDriverAsNetDevice(pDevNode, (struct _ATEMSYS_T_DRV_DESC_PRIVATE*)pDrvDescPrivate);
+    }
+#endif
+
     /* start drivers of sub-nodes */
     if (strcmp(pDrvDescPrivate->MacInfo.szIdent, "CPSW") == 0
        || strcmp(pDrvDescPrivate->MacInfo.szIdent, "ICSS") == 0)
@@ -4419,6 +4477,87 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
     return 0;
 }
 
+
+#ifdef INCLUDE_ATEMSYS_DT_REGISTER_NETDEVICE
+static int netd_dummy_int(struct net_device *netdev)
+{
+    return 0;
+}
+
+static void netd_dummy_void(struct net_device *netdev)
+{
+}
+
+static netdev_tx_t netd_xmit_frame(struct sk_buff *skb,
+                   struct net_device *netdev)
+{
+    return NETDEV_TX_BUSY;
+}
+
+static int netd_set_mac_address(struct net_device *netdev, void *p)
+{
+    struct sockaddr *addr = p;
+
+    eth_hw_addr_set(netdev, addr->sa_data);
+    return 0;
+}
+static int netd_do_ioctl(struct net_device *netdev, struct ifreq *ifr, int cmd)
+{
+    return -EOPNOTSUPP;
+}
+static void netd_tx_timeout(struct net_device *netdev, unsigned int txqueue)
+{
+}
+
+static int netd_set_features(struct net_device *netdev, netdev_features_t features)
+{
+    return 0;
+}
+
+static const struct net_device_ops AtemsysNetdevOps = {
+    .ndo_open           = netd_dummy_int,
+    .ndo_stop           = netd_dummy_int,
+    .ndo_start_xmit     = netd_xmit_frame,
+    .ndo_validate_addr  = netd_dummy_int,
+    .ndo_set_rx_mode    = netd_dummy_void,
+    .ndo_set_mac_address    = netd_set_mac_address,
+    .ndo_eth_ioctl      = netd_do_ioctl,
+    .ndo_tx_timeout     = netd_tx_timeout,
+#ifdef CONFIG_NET_POLL_CONTROLLER
+    .ndo_poll_controller    = netd_dummy_void,
+#endif
+    .ndo_set_features    = netd_set_features,
+};
+
+int RegisterEthernetDriverAsNetDevice(struct device_node* pDevNode, struct _ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
+{
+    struct net_device *netdev;
+    int err = 0;
+    u8 addr[ETH_ALEN] = {0};
+
+    if (!(netdev = alloc_etherdev(sizeof(int))))
+        return -ENOMEM;
+    eth_random_addr(addr);
+    eth_hw_addr_set(netdev, addr);
+    INF("%s: register_netdev mac: %02x:%02x:%02x:%02x:%02x:%02x\n", pDrvDescPrivate->pPDev->name,
+        addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+
+    netdev->hw_features |= NETIF_F_RXFCS;
+    netdev->priv_flags |= IFF_SUPP_NOFCS;
+    netdev->hw_features |= NETIF_F_RXALL;
+
+    netdev->netdev_ops = &AtemsysNetdevOps;
+    netdev->watchdog_timeo = 1000;
+    strscpy(netdev->name, ATEMSYS_DT_DRIVER_NAME, sizeof(ATEMSYS_DT_DRIVER_NAME));
+
+    SET_NETDEV_DEV(netdev, &pDrvDescPrivate->pPDev->dev);
+    netdev->dev.of_node = pDevNode;
+
+    strcpy(netdev->name, "eth%d");
+    err = register_netdev(netdev);
+    return err;
+}
+#endif /* #ifdef INCLUDE_ATEMSYS_DT_REGISTER_NETDEVICE */
 
 static int EthernetDriverRemove(struct platform_device* pPDev)
 {
