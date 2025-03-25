@@ -477,7 +477,11 @@ static int ReturnMdioOrderIoctl(unsigned long ioctlParam);
 static int GetPhyInfoIoctl(unsigned long ioctlParam);
 static int PhyResetIoctl(unsigned long ioctlParam);
 static int ResetPhyViaGpio(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate);
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(6,11,0))
+static void EthernetDriverRemove(struct platform_device* pPDev);
+#else
 static int EthernetDriverRemove(struct platform_device* pPDev);
+#endif
 static int EthernetDriverProbe(struct platform_device* pPDev);
 
 #if (defined CONFIG_XENO_COBALT)
@@ -2275,10 +2279,10 @@ static int SetIntCpuAffinityIoctl(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long
     /* set cpu affinity mask*/
     if (pIrqDesc->irq)
     {
-        nRetVal = irq_set_affinity(pIrqDesc->irq, pCpuMask);
+        nRetVal = irq_force_affinity(pIrqDesc->irq, pCpuMask);
         if (0 != nRetVal)
         {
-            ERR("SetIntCpuAffinityIoctl: irq_set_affinity failed: %d\n", nRetVal);
+            ERR("SetIntCpuAffinityIoctl: irq_force_affinity failed: %d\n", nRetVal);
             nRetVal = -EIO;
             goto Exit;
         }
@@ -4441,7 +4445,13 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
     if (dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
     {
         ERR("%s: Maximum number of instances exceeded!\n", pPDev->name);
+
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(6,11,0))
+        EthernetDriverRemove(pPDev);
+        return 1;
+#else
         return EthernetDriverRemove(pPDev);
+#endif
     }
 
 #ifdef INCLUDE_ATEMSYS_DT_REGISTER_NETDEVICE
@@ -4559,7 +4569,11 @@ int RegisterEthernetDriverAsNetDevice(struct device_node* pDevNode, struct _ATEM
 }
 #endif /* #ifdef INCLUDE_ATEMSYS_DT_REGISTER_NETDEVICE */
 
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(6,11,0))
+static void EthernetDriverRemove(struct platform_device* pPDev)
+#else
 static int EthernetDriverRemove(struct platform_device* pPDev)
+#endif
 {
     struct net_device* pNDev = platform_get_drvdata(pPDev);
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
@@ -4612,7 +4626,9 @@ static int EthernetDriverRemove(struct platform_device* pPDev)
         pDrvDescPrivate->pDevDesc               = NULL;
     }
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,11,0))
     return 0;
+#endif
 }
 
 static int CleanUpEthernetDriverOnRelease(ATEMSYS_T_DEVICE_DESC* pDevDesc)
