@@ -140,6 +140,8 @@
  *  V1.4.32 - Add support for dsa driver with Device Tree (insmod atemsys bRegisterDtbNetDevice=1)
  *            Fix Device Tree support for Kernel > 6.1.00
  *            Add support for TI AM64 CPSWG Second Port
+ *  V1.4.33 - Fix integration in Kernel >= 6.11.00 on arm/aarch64
+              Fix ATEMSYS_IOCTL_INT_SET_CPU_AFFINITY using irq_force_affinity()
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -154,10 +156,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.32"
-#define ATEMSYS_VERSION_NUM  1,4,32
+#define ATEMSYS_VERSION_STR "1.4.33"
+#define ATEMSYS_VERSION_NUM  1,4,33
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,32)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,33)
 #endif
 
 /* support selection */
