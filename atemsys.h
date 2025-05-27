@@ -142,6 +142,9 @@
  *            Add support for TI AM64 CPSWG Second Port
  *  V1.4.33 - Fix integration in Kernel >= 6.11.00 on arm/aarch64
               Fix ATEMSYS_IOCTL_INT_SET_CPU_AFFINITY using irq_force_affinity()
+ *  V1.4.34 - Fix for platform devices without 32-bit DMA
+ *            Add Device Tree Ethernet driver support for Raspberry Pi 5
+ *            Fix non-PCI IO Memory for PCI devices
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -156,10 +159,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.33"
-#define ATEMSYS_VERSION_NUM  1,4,33
+#define ATEMSYS_VERSION_STR "1.4.34"
+#define ATEMSYS_VERSION_NUM  1,4,34
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,33)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,34)
 #endif
 
 /* support selection */

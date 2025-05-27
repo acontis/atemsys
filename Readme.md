@@ -1,12 +1,12 @@
 # Kernel module atemsys
 
-Kernel module that grants direct access to hardware, improving the performance of the LinkLayers, used in the EtherCAT Master Stack Software EC-Master and EtherCAT Network Simulation Software EC-Simulator.
+Kernel module that grants direct access to hardware, improving the performance of the Real-time Ethernet Driver, used in the EtherCAT Master Stack Software EC-Master and EtherCAT Network Simulation Software EC-Simulator.
 
 It provides usermode access to:
 - PCI configuration space
 - Device IO memory
 - Contiguous DMA memory
-- Single device interrupt
+- Device interrupt (shared interrupts are not supported)
 
 The following diagram shows the architecture of [EC-Master](https://www.acontis.com/en/ethercat-master.html) on Linux.
 
@@ -17,7 +17,7 @@ The following diagram shows the architecture of [EC-Master](https://www.acontis.
 
 ## Installation
 ### Building on the target device
-Atemsys can be built natively on the target device:
+atemsys can be built natively on the target device:
 #### 1) Get the latest version of atemsys
 ```bash
 git clone https://github.com/acontis/atemsys.git
@@ -90,7 +90,7 @@ sudo insmod atemsys.ko
 There are recipes for creating atemsys with Yocto. Further information can be found here https://github.com/acontis/meta-acontis.
 
 ## Use atemsys as device tree Ethernet Driver
-Atemsys as device tree based platform device driver for the Ethernet MAC can handle several upcoming issues:
+atemsys as device tree based platform device driver for the Ethernet MAC can handle several upcoming issues:
 - Latest Linux versions bring more complex power saving behavior. To solve this a Linux driver is necessary to claim the same as the native driver from the Linux power-related management systems.
 - Some PHY configurations are currently not supported by the EC-Master. As Linux driver the atemsys can use the corresponding Linux PHY driver.
 - Systems with 2 Ethernet ports and a shared Mdio bus can be separated more easily between Linux and the EC-Master. The Ethernet port that provides the Mdio bus should be assigned to Linux.
@@ -109,7 +109,7 @@ On the running system the compiled device tree file can be generally found next 
 ### Customize device tree
 - Assign the Ethernet device tree node to the atemsys device driver by assigning the value `atemsys` to the `compatible` property. It is also possible to add `atemsys` to the existing `compatible` list
 - Add the properties `atemsys-Ident` and `atemsys-Instance`. 
-  - `atemsys-Ident` for the name of the link layer 
+  - `atemsys-Ident` for the name of the Real-time Ethernet Driver 
   - `atemsys-Instance` with the instance number that is to be used by EC-Master.
   - See also `EC_LINK_PARMS_IDENT_*` in `EcLink.h`
 - Remove all interrupt properties, like `interrupt-parent` and `interrupts`, in the `ethernet-phy` sub-node. 
