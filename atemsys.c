@@ -436,6 +436,7 @@ typedef struct _ATEMSYS_T_DRV_DESC_PRIVATE
 
     /* PHY reset*/
     int                         nPhyResetGpioPin;
+    bool                        bPhyResetGpioPinOwner;
     bool                        bPhyResetGpioActiveHigh;
     int                         nPhyResetDuration;
     int                         nPhyResetPostDelay;
@@ -2629,11 +2630,6 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
    void*       pVa = NULL;
    dma_addr_t  dmaAddr;
    ATEMSYS_T_MMAP_DESC* pMmapNode;
-#if (defined CONFIG_PCI)
-   int         i;
-   unsigned long ioBase;
-   u32 dwIOLen, dwPageOffset;
-#endif
 
    DBG("mmap: vm_pgoff 0x%px vm_start = 0x%px vm_end = 0x%px\n",
          (void*) vma->vm_pgoff, (void*) vma->vm_start, (void*) vma->vm_end);
@@ -2651,62 +2647,11 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
    vma->vm_flags |= VM_RESERVED | VM_LOCKED | VM_DONTCOPY;
 #endif
 
+   /* map device IO memory */
    if (vma->vm_pgoff != 0)
    {
-      /* map device IO memory */
-#if (defined CONFIG_PCI)
-      if (pDevDesc->pPcidev != NULL)
-      {
-         INF("mmap: Doing PCI device sanity check\n");
-
-         /* sanity check. Make sure that the offset parameter of the mmap() call in userspace
-          * corresponds with the PCI base IO address.
-          * Make sure the user doesn't map more IO memory than the device provides.
-          */
-         for (i = 0; i < ATEMSYS_PCI_MAXBAR; i++)
-         {
-            if (pci_resource_flags(pDevDesc->pPcidev, i) & IORESOURCE_MEM)
-            {
-               /* IO area address */
-               ioBase = PAGE_DOWN( pci_resource_start(pDevDesc->pPcidev, i) );
-
-               dwPageOffset = pci_resource_start(pDevDesc->pPcidev, i) - ioBase;
-
-               /* IO area length */
-               dwIOLen = PAGE_UP( pci_resource_len(pDevDesc->pPcidev, i) + dwPageOffset );
-
-               if (    ((vma->vm_pgoff << PAGE_SHIFT) >= ioBase)
-                    && (((vma->vm_pgoff << PAGE_SHIFT) + dwLen) <= (ioBase + dwIOLen))
-                  )
-               {
-                  /* for systems where physical address is in x64 space, high dword is not passes from user io
-                   * use correct address from pci_resource_start */
-                  resource_size_t res_start = pci_resource_start(pDevDesc->pPcidev, i);
-                  unsigned long pgoff_new = (res_start>>PAGE_SHIFT);
-                  if (pgoff_new != vma->vm_pgoff)
-                  {
-                      INF("mmap: Correcting page offset from 0x%lx to 0x%lx, for Phys address 0x%llx",
-                              vma->vm_pgoff, pgoff_new, (u64)res_start);
-                      vma->vm_pgoff =  pgoff_new;
-                  }
-
-                  break;
-               }
-            }
-         }
-
-         /* IO bar not found? */
-         if (i == ATEMSYS_PCI_MAXBAR)
-         {
-            ERR("mmap: Invalid arguments\n");
-            nRet = -EINVAL;
-            goto Exit;
-         }
-      }
-#endif /* CONFIG_PCI */
 
       /* avoid swapping, request IO memory */
-
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,3,0))
       vm_flags_set(vma, VM_IO);
 #else
@@ -2801,6 +2746,20 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
           * TODO test this and remove legacy dev_dma_alloc()
           */
          pVa = dmam_alloc_coherent(&pDevDesc->pPlatformDev->dev, dwLen, &dmaAddr, GFP_KERNEL);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,12,55))
+         if (NULL == pVa)
+         {
+            if (dma_get_mask(&pDevDesc->pPlatformDev->dev) != DMA_BIT_MASK(64))
+            {
+               int nRes = 0;
+               nRes = dma_set_mask_and_coherent(&pDevDesc->pPlatformDev->dev, DMA_BIT_MASK(64));
+               if (!nRes)
+               {
+                  pVa = dmam_alloc_coherent(&pDevDesc->pPlatformDev->dev, dwLen, &dmaAddr, GFP_KERNEL);
+               }
+            }
+         }
+#endif
          if (NULL == pVa)
          {
             ERR("mmap: dmam_alloc_coherent failed\n");
@@ -3951,6 +3910,13 @@ static int StartPhy(struct platform_device* pPDev)
     nRes = MdioProbe(pNDev);
     if (0 != nRes)
     {
+        /* remove mdio bus */
+        if (NULL != pDrvDescPrivate->pMdioBus)
+        {
+            mdiobus_unregister(pDrvDescPrivate->pMdioBus);
+            mdiobus_free(pDrvDescPrivate->pMdioBus);
+            pDrvDescPrivate->pMdioBus = NULL;
+        }
         return nRes;
     }
     /* phy */
@@ -4051,10 +4017,15 @@ static struct device_node* findDeviceTreeNode(struct platform_device* pPDev)
 static int ResetPhyViaGpio(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
 {
     int nRes = 0;
-
-    nRes = devm_gpio_request_one(&pDrvDescPrivate->pPDev->dev, pDrvDescPrivate->nPhyResetGpioPin,
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(6,0,0))
+    if (!pDrvDescPrivate->bPhyResetGpioPinOwner)
+#endif
+    {
+        nRes = devm_gpio_request_one(&pDrvDescPrivate->pPDev->dev, pDrvDescPrivate->nPhyResetGpioPin,
             pDrvDescPrivate->bPhyResetGpioActiveHigh ? GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW,
-            "phy-reset");
+            "atemsys-phy-reset");
+        pDrvDescPrivate->bPhyResetGpioPinOwner = true;
+    }
     if (nRes)
     {
         ERR("%s: failed to get atemsys-phy-reset-gpios: %d \n", pDrvDescPrivate->pPDev->name, nRes);
@@ -4382,7 +4353,7 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
 
             if ((NULL == pDrvDescPrivate->pMdioDevNode) && (NULL != pDrvDescPrivate->pPhyNode))
             {
-                /* check if phy node is subnode and us first sub-node as node for mdio bus */
+                /* check if phy node is subnode and use first sub-node as node for mdio bus */
                 struct device_node *pTempNode = of_get_parent(pDrvDescPrivate->pPhyNode);
                 if ((NULL != pTempNode) && (pTempNode == pDevNode))
                 {
@@ -4411,6 +4382,10 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
                 /* legacy mode: no node for mdio bus in device tree defined */
                 pDrvDescPrivate->MacInfo.bNoMdioBus = false;
                 INF("%s: handle mdio bus without device tree node.\n", pPDev->name );
+            }
+            if (pDrvDescPrivate->pMdioDevNode == pDrvDescPrivate->pPhyNode)
+            {
+                pDrvDescPrivate->pMdioDevNode = NULL;
             }
         }
 
