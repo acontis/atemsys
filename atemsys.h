@@ -145,6 +145,11 @@
  *  V1.4.34 - Fix for platform devices without 32-bit DMA
  *            Add Device Tree Ethernet driver support for Raspberry Pi 5
  *            Fix non-PCI IO Memory for PCI devices
+ *  V1.4.35 - Add driver initialization entry point for Kernel >= 6.6.00
+ *            Fix Xenomai 3.3
+ *            Fix CPSWG for Kernel >= 6.12
+ *            Add RiscV support
+ *            Fix PCI IO memory resource management Kernel >= 6.0.00
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -159,10 +164,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.34"
-#define ATEMSYS_VERSION_NUM  1,4,34
+#define ATEMSYS_VERSION_STR "1.4.35"
+#define ATEMSYS_VERSION_NUM  1,4,35
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,34)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,35)
 #endif
 
 /* support selection */

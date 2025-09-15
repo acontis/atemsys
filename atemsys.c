@@ -113,7 +113,7 @@
 #include <linux/pci.h>
 #include <linux/platform_device.h>
 
-#if !(defined NO_IRQ) && (defined __aarch64__)
+#if !(defined NO_IRQ) && ((defined __aarch64__) || (defined __riscv))
 #define NO_IRQ   ((unsigned int)(-1))
 #endif
 
@@ -260,7 +260,9 @@ module_param(bRegisterDtbNetDevice, bool, false);
 MODULE_PARM_DESC(bRegisterDtbNetDevice, "Register netdevice on device tree nodes (dsa driver support)");
 #endif
 
-#if (defined CONFIG_XENO_COBALT)
+#if (defined CONFIG_XENO_COBALT) \
+      && !((defined CONFIG_XENO_VERSION_MAJOR) && (defined CONFIG_XENO_VERSION_MINOR) \
+      && (CONFIG_XENO_VERSION_MAJOR >= 3) &&  (CONFIG_XENO_VERSION_MINOR >= 3))
 #define PRINTK(prio, str, ...) rtdm_printk(prio ATEMSYS_DEVICE_NAME ": " str,  ##__VA_ARGS__)
 #else
 #define PRINTK(prio, str, ...) printk(prio ATEMSYS_DEVICE_NAME ": " str,  ##__VA_ARGS__)
@@ -598,7 +600,7 @@ static int dev_irq_disabled(ATEMSYS_T_IRQ_DESC* pIrqDesc)
 }
 #endif /* !CONFIG_XENO_COBALT */
 
-#if (!defined __arm__) && (!defined __aarch64__)
+#if (!defined __arm__) && !((defined __aarch64__) || (defined __riscv))
 static void* dev_dma_alloc(u32 dwLen, dma_addr_t* pDmaAddr)
 {
    unsigned long virtAddr;
@@ -657,7 +659,7 @@ static void dev_munmap(struct vm_area_struct* vma)
    if (pMmapDesc->pDevDesc->pPcidev == NULL)
 #endif
    {
-#if (defined __arm__) || (defined __aarch64__)
+#if (defined __arm__) || (defined __aarch64__) || (defined __riscv)
       dmam_free_coherent(&pMmapDesc->pDevDesc->pPlatformDev->dev, pMmapDesc->len, pMmapDesc->pVirtAddr, pMmapDesc->dmaAddr);
 #else
       dev_dma_free(pMmapDesc->len, pMmapDesc->pVirtAddr);
@@ -666,7 +668,7 @@ static void dev_munmap(struct vm_area_struct* vma)
 #if (defined CONFIG_PCI)
    else
    {
-#if ((defined __aarch64__) \
+#if ((defined __aarch64__) || (defined __riscv) \
     || (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
     || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) \
     || ((defined __amd64__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) )
@@ -816,7 +818,7 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
 #endif
 
     /* remove wrong dma_coherent bit on ARM systems */
-#if ((defined __aarch64__) || (defined __arm__))
+#if ((defined __aarch64__) || (defined __arm__) || (defined __riscv))
  #if (LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0))
   #if (defined CONFIG_PHYS_ADDR_T_64BIT)
     if (is_device_dma_coherent(&pPciDev->dev))
@@ -837,7 +839,7 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
  #endif
 #endif
 
-#if ((LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)) || !(defined __aarch64__))
+#if ((LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)) || !((defined __aarch64__) || (defined __riscv)))
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,12,55))
     nRes = dma_set_coherent_mask(&pPciDev->dev, DMA_BIT_MASK(32));
 #else
@@ -864,7 +866,11 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
     * use interrupt mode, also if we have a non exclusive interrupt line with legacy
     * interrupts.
     */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,0,0))
+    if (!pci_msi_enabled())
+#else
     if (pci_enable_msi(pPciDev))
+#endif
     {
         INF("%s: DefaultPciSettings: legacy INT configured\n", pci_name(pPciDev));
     }
@@ -939,7 +945,6 @@ static int ioctl_pci_configure_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned 
 
             oPciDesc.aBar[i].qwIOMem = pDevDesc->pPciDrvDesc->aBars[i].qwIOMem;
             oPciDesc.aBar[i].dwIOLen = pDevDesc->pPciDrvDesc->aBars[i].dwIOLen;
-
         }
 
         oPciDesc.nBarCnt = pDevDesc->pPciDrvDesc->nBarCnt;
@@ -1102,9 +1107,6 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
     ATEMSYS_T_PCI_SELECT_DESC_v1_0_00 oPciDesc_v1_0_00;
     ATEMSYS_T_PCI_SELECT_DESC_v1_3_05 oPciDesc_v1_3_05;
     ATEMSYS_T_PCI_SELECT_DESC_v1_4_12 oPciDesc_v1_4_12;
-
-
-
 
     switch (size)
     {
@@ -1600,8 +1602,14 @@ Exit:
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
 #ifdef CONFIG_TI_K3_UDMA
 
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(5,10,0))
- #define CPSWG_STRUCT_VERSION_2 1
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(6,12,0))
+ #ifndef CPSWG_STRUCT_VERSION
+  #define CPSWG_STRUCT_VERSION 3
+ #endif
+#elif (LINUX_VERSION_CODE > KERNEL_VERSION(5,10,0))
+ #ifndef CPSWG_STRUCT_VERSION
+  #define CPSWG_STRUCT_VERSION 2
+ #endif
 #endif
 
 #include <linux/soc/ti/k3-ringacc.h>
@@ -1614,25 +1622,33 @@ struct k3_ring_state {
     u32 occ;
     u32 windex;
     u32 rindex;
-#ifdef CPSWG_STRUCT_VERSION_2
+#ifdef CPSWG_STRUCT_VERSION
     u32 tdown_complete:1;
 #endif
 };
 
 struct k3_ring {
     struct k3_ring_rt_regs __iomem *rt;
+#if ((defined CPSWG_STRUCT_VERSION) && (3 == CPSWG_STRUCT_VERSION))
+    struct k3_ring_cfg_regs __iomem *cfg;
+    struct k3_ring_intr_regs __iomem *intr;
+#endif
     struct k3_ring_fifo_regs __iomem *fifos;
     struct k3_ringacc_proxy_target_regs  __iomem *proxy;
     dma_addr_t  ring_mem_dma;
     void        *ring_mem_virt;
+#if ((defined CPSWG_STRUCT_VERSION) && (3 == CPSWG_STRUCT_VERSION))
+    const struct k3_ring_ops *ops;
+#else
     struct k3_ring_ops *ops;
+#endif
     u32     size;
     enum k3_ring_size elm_size;
     enum k3_ring_mode mode;
     u32     flags;
 #define K3_RING_FLAG_BUSY   BIT(1)
 #define K3_RING_FLAG_SHARED BIT(2)
-#ifdef CPSWG_STRUCT_VERSION_2
+#ifdef CPSWG_STRUCT_VERSION
  #define K3_RING_FLAG_REVERSE BIT(3)
 #endif
     struct k3_ring_state state;
@@ -1640,7 +1656,7 @@ struct k3_ring {
     struct k3_ringacc   *parent;
     u32     use_count;
     int     proxy_id;
-#ifdef CPSWG_STRUCT_VERSION_2
+#ifdef CPSWG_STRUCT_VERSION
     struct device   *dma_dev;
     u32     asel;
 #define K3_ADDRESS_ASEL_SHIFT   48
@@ -1649,7 +1665,7 @@ struct k3_ring {
 
 struct k3_udma_glue_common {
     struct device *dev;
-#ifdef CPSWG_STRUCT_VERSION_2
+#ifdef CPSWG_STRUCT_VERSION
     struct device chan_dev;
 #endif
     struct udma_dev *udmax;
@@ -1663,7 +1679,7 @@ struct k3_udma_glue_common {
     u32  psdata_size;
     u32  swdata_size;
     u32  atype;
-#ifdef CPSWG_STRUCT_VERSION_2
+#ifdef CPSWG_STRUCT_VERSION
     struct psil_endpoint_config *ep_config;
 #endif
 };
@@ -1686,12 +1702,10 @@ struct k3_udma_glue_tx_channel {
     bool tx_filt_einfo;
     bool tx_filt_pswords;
     bool tx_supr_tdpkt;
-#ifdef CPSWG_STRUCT_VERSION_2
+#ifdef CPSWG_STRUCT_VERSION
     int udma_tflow_id;
 #endif
 };
-
-
 
 struct k3_udma_glue_rx_flow {
     struct udma_rflow *udma_rflow;
@@ -2316,15 +2330,17 @@ static void dev_pci_release(ATEMSYS_T_DEVICE_DESC* pDevDesc)
 
    if (pDevDesc->pPcidev)
    {
-      pci_disable_device(pDevDesc->pPcidev);
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)) && (LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0))
       /* Make sure bus master DMA is disabled if the DMA buffers are finally released */
       pci_clear_master(pDevDesc->pPcidev);
 #endif
       pci_release_regions(pDevDesc->pPcidev);
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0))
       pci_disable_msi(pDevDesc->pPcidev);
+#endif
+
+      pci_disable_device(pDevDesc->pPcidev);
 
       INF("pci_release: PCI device %s released\n", pci_name(pDevDesc->pPcidev));
 
@@ -2700,7 +2716,7 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
       if (pDevDesc->pPcidev != NULL)
       {
 #if ( (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
-    || (defined __aarch64__) \
+    || (defined __aarch64__) || (defined __riscv)\
     || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) \
     || ((defined __i386__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))) \
     || ((defined __amd64__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))) )
@@ -2738,7 +2754,7 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
       else
 #endif /* CONFIG_PCI */
       {
-#if (defined __arm__) || (defined __aarch64__)
+#if (defined __arm__) || (defined __aarch64__) || (defined __riscv)
  #if (defined CONFIG_OF)
          OF_DMA_CONFIGURE(&pDevDesc->pPlatformDev->dev,pDevDesc->pPlatformDev->dev.of_node);
  #endif
@@ -2798,7 +2814,7 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
       {
          unsigned int dwDmaPfn = 0;
 
-#if (defined __arm__) || (defined __aarch64__)
+#if (defined __arm__) || (defined __aarch64__) || (defined __riscv)
          dwDmaPfn = (dmaAddr >> PAGE_SHIFT);
  #if (defined CONFIG_PCI)
   #if (LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0))
@@ -2854,7 +2870,7 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
             pDmaDev = &pDevDesc->pPlatformDev->dev;
          }
 
-#if ((defined __arm__) || (defined __aarch64__)) && (!defined ATEMSYS_DONT_SET_NONCACHED_DMA_PAGEPROTECTIONLFAG)
+#if ((defined __arm__) || (defined __aarch64__) || (defined __riscv)) && (!defined ATEMSYS_DONT_SET_NONCACHED_DMA_PAGEPROTECTIONLFAG)
          vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 #endif
             /* for Platform Device */
@@ -2917,7 +2933,7 @@ ExitAndFree:
    if (pDevDesc->pPcidev != NULL)
    {
 #if ( (LINUX_VERSION_CODE >= KERNEL_VERSION(5,0,0)) \
-    || (defined __aarch64__) \
+    || (defined __aarch64__)  || (defined __riscv)\
     || ((defined __arm__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))) \
     || ((defined __i386__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))) \
     || ((defined __amd64__) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,9,0))) )
@@ -2929,7 +2945,7 @@ ExitAndFree:
    else
 #endif
    {
-#if (defined __arm__) || (defined __aarch64__)
+#if (defined __arm__) || (defined __aarch64__) || (defined __riscv)
       dmam_free_coherent(&pDevDesc->pPlatformDev->dev, dwLen, pVa, dmaAddr);
 #else
       dev_dma_free(dwLen, pVa);
@@ -4698,8 +4714,11 @@ static void PciDriverRemove(struct pci_dev* pPciDev)
     }
 
     /* disable device */
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(6,0,0))
     pci_disable_msi(pPciDev);
+#endif
     pci_release_regions(pPciDev);
+
 #if (LINUX_VERSION_CODE <= KERNEL_VERSION(6,4,0))
     pci_disable_pcie_error_reporting(pPciDev);
 #endif
@@ -4878,7 +4897,11 @@ static struct pci_driver oPciDriver = {
 /*
  * Initialize the module - Register the character device
  */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,6,0))
+static int  __init atemsys_init_module(void)
+#else
 int init_module(void)
+#endif
 {
 #if (defined CONFIG_XENO_COBALT)
 
@@ -4949,7 +4972,7 @@ int init_module(void)
     S_pDev = device_create(S_pDevClass, NULL, MKDEV(MAJOR_NUM, 0), NULL, ATEMSYS_DEVICE_NAME);
 #endif
 
-#if (defined __arm__) || (defined __aarch64__)
+#if (defined __arm__) || (defined __aarch64__) || (defined __riscv)
     {
         int nRetVal = 0;
         S_pPlatformDev = platform_device_alloc("atemsys_PDev", MKDEV(MAJOR_NUM, 0));
@@ -4997,7 +5020,11 @@ int init_module(void)
 /*
  * Cleanup - unregister the appropriate file from /proc
  */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,6,0))
+static void  __exit atemsys_cleanup_module(void)
+#else
 void cleanup_module(void)
+#endif
 {
    INF("%s v%s unloaded\n", ATEMSYS_DEVICE_NAME, ATEMSYS_VERSION_STR);
 
@@ -5026,7 +5053,7 @@ void cleanup_module(void)
     }
 #endif
 
-#if (defined __arm__) || (defined __aarch64__)
+#if (defined __arm__) || (defined __aarch64__) || (defined __riscv)
     if (NULL != S_pPlatformDev)
     {
         platform_device_del(S_pPlatformDev);
@@ -5049,3 +5076,7 @@ void cleanup_module(void)
 #endif /* CONFIG_XENO_COBALT */
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,6,0))
+module_init(atemsys_init_module);
+module_exit(atemsys_cleanup_module);
+#endif
