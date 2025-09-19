@@ -1407,9 +1407,21 @@ static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioct
             WRN("intcon: error call ioctl(ATEMSYS_IOCTL_PCI_CONF_DEVICE) first\n");
             goto Exit;
         }
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,0,0))
+        nRc = pci_alloc_irq_vectors(pDevDesc->pPcidev, 1, 1, PCI_IRQ_ALL_TYPES);
+        if (nRc < 0)
+        {
+            nRetVal = nRc;
+            ERR("intcon: pci_alloc_irq_vectors failed\n");
+            goto Exit;
+        }
 
+        irq = pci_irq_vector(pDevDesc->pPcidev, 0);
+        INF("intcon: Use IRQ (%d) from pci_alloc_irq_vectors\n", irq);
+#else
         irq = pDevDesc->pPcidev->irq;
         INF("intcon: Use IRQ (%d) from PCI config\n", irq);
+#endif
     }
     else
 #endif /* CONFIG_PCI */
@@ -1585,6 +1597,12 @@ static int dev_int_disconnect(ATEMSYS_T_DEVICE_DESC* pDevDesc)
          nCnt = atomic_read(&pIrqDesc->totalCount);
          INF("pci_intdcon: IRQ %u disconnected. %d interrupts rcvd\n", (u32) pIrqDesc->irq, nCnt);
 
+#if (defined CONFIG_PCI) && (LINUX_VERSION_CODE >= KERNEL_VERSION(6,0,0))
+         if (NULL != pDevDesc->pPcidev)
+         {
+            pci_free_irq_vectors(pDevDesc->pPcidev);
+         }
+#endif
          pIrqDesc->irq = 0;
 
          /* Wakeup sleeping threads -> read() */

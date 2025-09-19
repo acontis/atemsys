@@ -150,6 +150,7 @@
  *            Fix CPSWG for Kernel >= 6.12
  *            Add RiscV support
  *            Fix PCI IO memory resource management Kernel >= 6.0.00
+ *  V1.4.36 - Fix PCI MSI interrupt broken since V1.4.35 for Kernel >= 6.0.00
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -164,10 +165,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.35"
-#define ATEMSYS_VERSION_NUM  1,4,35
+#define ATEMSYS_VERSION_STR "1.4.36"
+#define ATEMSYS_VERSION_NUM  1,4,36
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,35)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,36)
 #endif
 
 /* support selection */
