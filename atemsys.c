@@ -398,7 +398,7 @@ static ATEMSYS_T_PCI_DRV_DESC_PRIVATE*  S_apPciDrvDescPrivate[ATEMSYS_MAX_NUMBER
 #endif
 
 #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
-#define ATEMSYS_MAX_NUMBER_OF_CLOCKS 10
+#define ATEMSYS_MAX_NUMBER_OF_CLOCKS 32
 
 typedef struct
 {
@@ -781,7 +781,7 @@ static int dev_pci_select_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, ATEMSYS_T_PCI_
                 pDevDesc->pPcidev        = pDrvInstance->pPciDev;
                 pDevDesc->pPciDrvDesc    = pDrvInstance;
                 pDrvInstance->pDevDesc   = pDevDesc;
-                INF("pci_select: from pci driver %04x:%02x:%02x.%x\n", (u32)nPciDomain, (u32)nPciBus, (u32)nPciDev, (u32)nPciFun);
+                DBG("pci_select: from pci driver %04x:%02x:%02x.%x\n", (u32)nPciDomain, (u32)nPciBus, (u32)nPciDev, (u32)nPciFun);
                 break;
             }
         }
@@ -790,7 +790,7 @@ static int dev_pci_select_device(ATEMSYS_T_DEVICE_DESC* pDevDesc, ATEMSYS_T_PCI_
 #endif
     {
         pDevDesc->pPcidev = pci_get_domain_bus_and_slot(nPciDomain, nPciBus, PCI_DEVFN(nPciDev, nPciFun));
-        INF("pci_select: %04x:%02x:%02x.%x\n", (u32)nPciDomain, (u32)nPciBus, (u32)nPciDev, (u32)nPciFun);
+        DBG("pci_select: %04x:%02x:%02x.%x\n", (u32)nPciDomain, (u32)nPciBus, (u32)nPciDev, (u32)nPciFun);
     }
     if (pDevDesc->pPcidev == NULL)
     {
@@ -876,7 +876,7 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
     }
     else
     {
-        INF("%s: DefaultPciSettings: MSI configured\n", pci_name(pPciDev));
+        DBG("%s: DefaultPciSettings: MSI configured\n", pci_name(pPciDev));
     }
 
     nRetVal = 0;
@@ -1179,7 +1179,7 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
         goto Exit;
     }
 
-    INF("pci_find: ven 0x%x dev 0x%x nInstance %d\n", nVendor, nDevice, nInstance);
+    DBG("pci_find: ven 0x%x dev 0x%x nInstance %d\n", nVendor, nDevice, nInstance);
 
     for (nInstanceId = 0; nInstanceId <= nInstance; nInstanceId++ )
     {
@@ -1188,13 +1188,12 @@ static int ioctl_pci_finddevice(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long i
 
     if (pPciDev == NULL)
     {
-        WRN("pci_find: device 0x%x:0x%x:%d not found\n", nVendor, nDevice, nInstance);
+        DBG("pci_find: device 0x%x:0x%x:%d not found\n", nVendor, nDevice, nInstance);
         nRetVal = -ENODEV;
         goto Exit;
     }
 
-    INF("pci_find: found 0x%x:0x%x:%d -> %s\n",
-       nVendor, nDevice, nInstance, pci_name(pPciDev));
+    INF("pci_find: found 0x%x:0x%x:%d -> %s\n", nVendor, nDevice, nInstance, pci_name(pPciDev));
 
     switch (dwAtemsysApiVersion)
     {
@@ -1417,10 +1416,10 @@ static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioct
         }
 
         irq = pci_irq_vector(pDevDesc->pPcidev, 0);
-        INF("intcon: Use IRQ (%d) from pci_alloc_irq_vectors\n", irq);
+        DBG("intcon: Use IRQ (%d) from pci_alloc_irq_vectors\n", irq);
 #else
         irq = pDevDesc->pPcidev->irq;
-        INF("intcon: Use IRQ (%d) from PCI config\n", irq);
+        DBG("intcon: Use IRQ (%d) from PCI config\n", irq);
 #endif
     }
     else
@@ -1452,7 +1451,7 @@ static int ioctl_int_connect(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioct
 #else
         /* Use IRQ number passed as ioctl argument */
         irq = ioctlParam;
-        INF("intcon: Use IRQ (%d) passed by user\n", irq);
+        DBG("intcon: Use IRQ (%d) passed by user\n", irq);
 #endif
     }
 
@@ -4424,20 +4423,53 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
         }
 
         /* PHY reset data */
-        nRes = of_property_read_u32(pDevNode, "atemsys-phy-reset-duration", &pDrvDescPrivate->nPhyResetDuration);
-        if (nRes) pDrvDescPrivate->nPhyResetDuration = 0;
-        pDrvDescPrivate->nPhyResetGpioPin = of_get_named_gpio(pDevNode, "atemsys-phy-reset-gpios", 0);
-        nRes = of_property_read_u32(pDevNode, "atemsys-phy-reset-post-delay", &pDrvDescPrivate->nPhyResetPostDelay);
-        if (nRes) pDrvDescPrivate->nPhyResetPostDelay = 0;
-        pDrvDescPrivate->bPhyResetGpioActiveHigh = of_property_read_bool(pDevNode, "atemsys-phy-reset-active-high");
-
-        if ((0 != pDrvDescPrivate->nPhyResetDuration) && (pDrvDescPrivate->nPhyResetGpioPin != -EPROBE_DEFER)
-                && gpio_is_valid(pDrvDescPrivate->nPhyResetGpioPin))
+        if (of_find_property(pDevNode, "atemsys-phy-reset-gpios", NULL))
         {
-            pDrvDescPrivate->MacInfo.bPhyResetSupported = true;
-            DBG("%s: PhyReset ready: GpioPin: %d; Duration %d, bActiveHigh %d, post delay %d\n", pPDev->name,
-                pDrvDescPrivate->nPhyResetGpioPin, pDrvDescPrivate->nPhyResetDuration,
-                pDrvDescPrivate->bPhyResetGpioActiveHigh, pDrvDescPrivate->nPhyResetPostDelay);
+            const char* pcPropertyName;
+
+            nRes = of_property_read_string(pDevNode, "atemsys-phy-reset-gpios", &pcPropertyName);
+            if (0 != nRes)
+            {
+                nRes = of_property_read_u32(pDevNode, "atemsys-phy-reset-duration", &pDrvDescPrivate->nPhyResetDuration);
+                if (nRes) pDrvDescPrivate->nPhyResetDuration = 0;
+
+                pDrvDescPrivate->nPhyResetGpioPin = of_get_named_gpio(pDevNode, "atemsys-phy-reset-gpios", 0);
+
+                nRes = of_property_read_u32(pDevNode, "atemsys-phy-reset-post-delay", &pDrvDescPrivate->nPhyResetPostDelay);
+                if (nRes) pDrvDescPrivate->nPhyResetPostDelay = 0;
+
+                pDrvDescPrivate->bPhyResetGpioActiveHigh = of_property_read_bool(pDevNode, "atemsys-phy-reset-active-high");
+            }
+            else
+            {
+                pDrvDescPrivate->nPhyResetGpioPin = of_get_named_gpio(pDevNode, pcPropertyName, 0);
+                if (0 < pDrvDescPrivate->nPhyResetGpioPin)
+                {
+                    nRes = of_property_read_string(pDevNode, "atemsys-phy-reset-duration", &pcPropertyName);
+                    if (0 == nRes)
+                        of_property_read_u32(pDevNode, pcPropertyName, &pDrvDescPrivate->nPhyResetDuration);
+                    else
+                        pDrvDescPrivate->nPhyResetGpioPin = 100;
+
+                    nRes = of_property_read_string(pDevNode, "atemsys-phy-reset-post-delay", &pcPropertyName);
+                    if (0 == nRes)
+                        of_property_read_u32(pDevNode, pcPropertyName, &pDrvDescPrivate->nPhyResetPostDelay);
+                    else
+                        pDrvDescPrivate->nPhyResetPostDelay = 100;
+
+                    nRes = of_property_read_string(pDevNode, "atemsys-phy-reset-active-high", &pcPropertyName);
+                    if (0 == nRes)
+                        pDrvDescPrivate->bPhyResetGpioActiveHigh = of_property_read_bool(pDevNode, pcPropertyName);
+                }
+            }
+
+            if ((0 <= pDrvDescPrivate->nPhyResetGpioPin) && gpio_is_valid(pDrvDescPrivate->nPhyResetGpioPin))
+            {
+                pDrvDescPrivate->MacInfo.bPhyResetSupported = true;
+                DBG("%s: PhyReset ready: GpioPin: %d; Duration %d, bActiveHigh %d, post delay %d\n", pPDev->name,
+                    pDrvDescPrivate->nPhyResetGpioPin, pDrvDescPrivate->nPhyResetDuration,
+                    pDrvDescPrivate->bPhyResetGpioActiveHigh, pDrvDescPrivate->nPhyResetPostDelay);
+            }
         }
     }
 
