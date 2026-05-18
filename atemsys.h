@@ -154,6 +154,9 @@
  *  V1.4.37 - Fix support for devices with up to 32 clocks to platform / Device Tree Ethernet driver
  *            Add support gpio phy reset device tree overlays
  *            Fix log level of verbose messages about PCI/PCIe device from INFO to DEBUG
+ *  V1.4.38 - Add support for IEEE 802.3 Clause 45 protocol to Device Tree Ethernet driver
+ *            Add support for multiple clocks and resets
+ *            Fix support gpio phy reset device tree overlays
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -168,10 +171,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.37"
-#define ATEMSYS_VERSION_NUM  1,4,37
+#define ATEMSYS_VERSION_STR "1.4.38"
+#define ATEMSYS_VERSION_NUM  1,4,38
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,37)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,38)
 #endif
 
 /* support selection */
@@ -356,6 +359,9 @@ typedef enum _EC_T_PHYINTERFACE_ATEMSYS
     eATEMSYS_PHY_SGMII      = 1 << 4,
     eATEMSYS_PHY_RGMII      = 1 << 5,
     eATEMSYS_PHY_OSDRIVER   = 1 << 6,
+    eATEMSYS_PHY_RMII_50MHZ = 1 << 7,
+    eATEMSYS_PHY_10GBASER   = 1 << 8,
+    eATEMSYS_PHY_25GBASER   = 1 << 9,
 
     /* Borland C++ datatype alignment correction */
     eATEMSYS_PHY_BCppDummy  = 0xFFFFFFFF
@@ -376,8 +382,9 @@ typedef struct
     __u32                       bNoMdioBus;                         /* [in]     Mac don't need to run own Mdio Bus */
     __u32                       dwPhyAddr;                          /* [in]     Address of PHY on mdio bus */
     __u32                       dwErrorCode;                        /* [in]     Error code defined in SDK/INC/EcError.h */
-    __u32                       bPhyResetSupported;                 /* [in]    Device tree has data for phy reset */
-    __u32                       dwReserved[15];
+    __u32                       bPhyResetSupported;                 /* [in]     Device tree has data for phy reset */
+    __u32                       bPhyC45Required;                    /* [in]     IEEE 802.3 Clause 45 protocol required */
+    __u32                       dwReserved[14];
 } __attribute__((packed)) ATEMSYS_T_MAC_INFO;
 
 typedef struct
@@ -391,7 +398,9 @@ typedef struct
     __u16                       wValue;                             /* [in/out] Current value read or write */
     __u32                       dwTimeoutMsec;                      /* [in]     Timeout in milli seconds */
     __u32                       dwErrorCode;                        /* [in]     Error code defined in SDK/INC/EcError.h */
-    __u32                       dwReserved[4];
+    __u16                       wC45DevAddr;                        /* [in]     IEEE 802.3 Clause 45 protocol device address */
+    __u16                       wReserved;
+    __u32                       dwReserved[3];
 } __attribute__((packed)) ATEMSYS_T_MDIO_ORDER;
 
 typedef struct
