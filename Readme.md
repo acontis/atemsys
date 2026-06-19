@@ -22,7 +22,7 @@ atemsys can be built natively on the target device:
 ```bash
 git clone https://github.com/acontis/atemsys.git
 ```
-#### 2) Install kernel headers if neccessary, e.g.
+#### 2) Install kernel headers if necessary, e.g.
 ```bash
 sudo apt-get install linux-headers-$(uname -r)
 ```
@@ -32,7 +32,7 @@ sudo apt-get install linux-headers-$(uname -r)
 cd atemsys
 make modules
 ```
-#### 3) Load the atemsys module
+#### 4) Load the atemsys module
 ```bash
 sudo insmod atemsys.ko
 ```
