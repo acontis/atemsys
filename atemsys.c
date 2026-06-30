@@ -198,6 +198,11 @@ int RegisterEthernetDriverAsNetDevice(struct device_node* pDevNode, struct _ATEM
 #include <linux/aer.h>
 #endif
 
+#if ((defined CONFIG_IOMMU_API) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4,8,0) /* not tested */))
+#define INCLUDE_ATEMSYS_IOMMU_SUPPORT    1
+#include <linux/iommu.h>
+#endif
+
 #if !(defined HAVE_IRQ_TO_DESC) && !(defined CONFIG_HAVE_DOVETAIL) && !(defined CONFIG_IRQ_PIPELINE)
  #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,4,1))
   #define INCLUDE_IRQ_TO_DESC
@@ -310,6 +315,60 @@ MODULE_PARM_DESC(bRegisterDtbNetDevice, "Register netdevice on device tree nodes
  #define OF_DMA_CONFIGURE(dev, of_node)
 #endif
 
+/*
+ * Check if the device is translated by an IOMMU (e.g. SMMU on ARM, Vt-D on Intel).
+ * In this case the DMA address returned by dma_alloc_coherent() is an IO virtual
+ * address and the user space mapping must be done by dma_mmap_coherent().
+ */
+static bool DeviceIsIommuMapped(struct device* pDev)
+{
+#if (defined INCLUDE_ATEMSYS_IOMMU_SUPPORT)
+    struct iommu_domain* pIommuDomain = NULL;
+
+    if (NULL == pDev)
+    {
+        return false;
+    }
+    pIommuDomain = iommu_get_domain_for_dev(pDev);
+    if (NULL == pIommuDomain)
+    {
+        return false;
+    }
+    /* identity mapped (pass-through) domains use DMA address == physical address */
+    return (IOMMU_DOMAIN_IDENTITY != pIommuDomain->type);
+#else
+    return false;
+#endif
+}
+
+/*
+ * Check if the device does cache coherent DMA (e.g. device tree property "dma-coherent").
+ * In this case the DMA memory can be mapped cached into user space, because the
+ * device snoops the CPU caches.
+ */
+#if ((defined CONFIG_PCI) || (LINUX_VERSION_CODE > KERNEL_VERSION(5,4,0)))
+static bool DeviceIsDmaCoherent(struct device* pDev)
+{
+    if (NULL == pDev)
+    {
+        return false;
+    }
+#if ((defined __aarch64__) || (defined __arm__) || (defined __riscv))
+ #if ((LINUX_VERSION_CODE > KERNEL_VERSION(5,0,0)) \
+       && ((defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_DEVICE) || defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU) || defined(CONFIG_ARCH_HAS_SYNC_DMA_FOR_CPU_ALL))))
+    return (0 != pDev->dma_coherent);
+ #elif ((LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0)) && (defined CONFIG_PHYS_ADDR_T_64BIT))
+    return is_device_dma_coherent(pDev);
+ #else
+    return false;
+ #endif
+#else
+    /* x86 / x86_64 / PPC are cache coherent */
+    return true;
+#endif
+}
+#endif
+
 typedef struct _ATEMSYS_T_IRQ_DESC
 {
     u32               irq;
@@ -392,6 +451,11 @@ typedef struct _ATEMSYS_T_PCI_DRV_DESC_PRIVATE
 
     ATEMSYS_T_DEVICE_DESC*      pDevDesc;
     unsigned int                dwIndex;
+
+  #if (defined INCLUDE_ATEMSYS_DT_DRIVER)
+    /* optional PHY instance driven via the device's OF node (shared kernel MDIO bus) */
+    struct _ATEMSYS_T_DRV_DESC_PRIVATE* pPhyDrvDesc;
+  #endif
 } ATEMSYS_T_PCI_DRV_DESC_PRIVATE;
 
 static ATEMSYS_T_PCI_DRV_DESC_PRIVATE*  S_apPciDrvDescPrivate[ATEMSYS_MAX_NUMBER_DRV_INSTANCES];
@@ -410,6 +474,7 @@ typedef struct _ATEMSYS_T_DRV_DESC_PRIVATE
     int                         nDev_id;
     struct net_device*          netdev;
     struct platform_device*     pPDev;
+    struct device*              pDev;       /* underlying device: &pPDev->dev (DT) or &pPciDev->dev (PCI) */
     struct device_node*         pDevNode;
 
     /* storage and identification */
@@ -487,8 +552,8 @@ static int EthernetDriverRemove(struct platform_device* pPDev);
 static int EthernetDriverProbe(struct platform_device* pPDev);
 
 #if (defined CONFIG_XENO_COBALT)
-static int StartPhy(struct platform_device* pPDev);
-static int StopPhy(struct platform_device* pPDev);
+static int StartPhy(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate);
+static int StopPhy(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate);
 typedef struct _ATEMSYS_T_WORKER_THREAD_DESC
 {
     struct task_struct*     etx_thread;
@@ -816,8 +881,17 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
     pci_try_set_mwi(pPciDev);
 #endif
 
-    /* remove wrong dma_coherent bit on ARM systems */
 #if ((defined __aarch64__) || (defined __arm__) || (defined __riscv))
+    if (DeviceIsIommuMapped(&pPciDev->dev))
+    {
+        /* devices translated by an IOMMU get their coherency configuration from the firmware,
+         * keep it. The user space mapping in device_mmap() honors it. */
+        INF("%s: DefaultPciSettings: IOMMU mapped, keep dma_coherent setting (%s)\n",
+            pci_name(pPciDev), DeviceIsDmaCoherent(&pPciDev->dev)? "coherent": "non-coherent");
+    }
+    else
+    {
+    /* remove wrong dma_coherent bit on ARM systems */
  #if (LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0))
   #if (defined CONFIG_PHYS_ADDR_T_64BIT)
     if (is_device_dma_coherent(&pPciDev->dev))
@@ -836,6 +910,7 @@ static int DefaultPciSettings(struct pci_dev* pPciDev)
     }
   #endif
  #endif
+    }
 #endif
 
 #if ((LINUX_VERSION_CODE < KERNEL_VERSION(5,10,0)) || !((defined __aarch64__) || (defined __riscv)))
@@ -2772,7 +2847,12 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
       {
 #if (defined __arm__) || (defined __aarch64__) || (defined __riscv)
  #if (defined CONFIG_OF)
-         OF_DMA_CONFIGURE(&pDevDesc->pPlatformDev->dev,pDevDesc->pPlatformDev->dev.of_node);
+         if (!DeviceIsIommuMapped(&pDevDesc->pPlatformDev->dev))
+         {
+            /* don't re-configure DMA of devices already attached to their IOMMU domain
+             * (e.g. bound device tree devices), the driver core already did it at probe */
+            OF_DMA_CONFIGURE(&pDevDesc->pPlatformDev->dev,pDevDesc->pPlatformDev->dev.of_node);
+         }
  #endif
          /* dma_alloc_coherent() is currently not tested on PPC.
           * TODO test this and remove legacy dev_dma_alloc()
@@ -2820,13 +2900,14 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
       /* zero memory for security reasons */
       memset(pVa, 0, dwLen);
 
-      /* Always use noncached DMA memory for ARM. Otherwise cache invaliation/sync
-       * would be necessary from usermode.
+      /* Use noncached DMA memory for ARM if the device is not dma-coherent.
+       * Otherwise cache invaliation/sync would be necessary from usermode.
        * Can't do that without a kernel call because this OP's are privileged.
        */
 
       /* map the whole physically contiguous area in one piece */
 #if (!(defined ATEMSYS_LEGACY_DMA) && (LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0))) || ((defined ATEMSYS_LEGACY_DMA) && (0 != ATEMSYS_LEGACY_DMA))
+      /* legacy DMA mapping */
       {
          unsigned int dwDmaPfn = 0;
 
@@ -2870,31 +2951,48 @@ static int device_mmap(struct file* filp, struct vm_area_struct* vma)
             goto ExitAndFree;
          }
       }
-#else /* #if (defined ATEMSYS_LEGACY_DMA) */
+#else  /* new DMA mapping */
       {
          struct device* pDmaDev = NULL;
+         bool bIommuMapped = false;
+         bool bDmaCoherent = false;
 
- #if (defined CONFIG_PCI)
+#if (defined CONFIG_PCI)
          if (NULL != pDevDesc->pPcidev)
          {
             pDmaDev = &pDevDesc->pPcidev->dev;
          }
          else
- #endif /* (defined CONFIG_PCI) */
+#endif /* (defined CONFIG_PCI) */
          if (NULL != pDevDesc->pPlatformDev)
          {
             pDmaDev = &pDevDesc->pPlatformDev->dev;
          }
+         bIommuMapped = DeviceIsIommuMapped(pDmaDev);
+         bDmaCoherent = DeviceIsDmaCoherent(pDmaDev);
+         DBG("mmap: dma device %s, iommu mapped %d, dma-coherent %d\n",
+            (NULL != pDmaDev)? dev_name(pDmaDev): "none", (int)bIommuMapped, (int)bDmaCoherent);
+
+#if (defined CONFIG_PCI) && (defined INCLUDE_ATEMSYS_PCI_DRIVER)
+         if (bIommuMapped && (NULL != pDevDesc->pPcidev) && (NULL == pDevDesc->pPciDrvDesc))
+         {
+            WRN("mmap: %s is IOMMU translated but atemsys is not bound as its driver - "
+                "DMA mapping may be wrong. Bind atemsys (atemsys_pci) to the device \n", 
+                pci_name(pDevDesc->pPcidev));
+         }
+#endif
 
 #if ((defined __arm__) || (defined __aarch64__) || (defined __riscv)) && (!defined ATEMSYS_DONT_SET_NONCACHED_DMA_PAGEPROTECTIONLFAG)
-         vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+         if (!bDmaCoherent)
+         {
+            vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+         }
 #endif
-            /* for Platform Device */
          nRet = dma_mmap_coherent(pDmaDev,
-                                     vma,       /* user space mapping                   */
-                                     pVa,       /* kernel virtual address               */
-                                     dmaAddr,   /* Phys address                         */
-                                     dwLen);    /* size         */
+                                  vma,       /* user space mapping                   */
+                                  pVa,       /* kernel virtual address               */
+                                  dmaAddr,   /* DMA address (phys or IO virtual)     */
+                                  dwLen);    /* size         */
          if (nRet < 0)
          {
             ERR("dma_mmap_coherent failed\n");
@@ -3310,7 +3408,7 @@ static int GetMacInfoIoctl(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlP
     {
         if (pDrvDescPrivate->pDevDesc != NULL)
         {
-            ERR("GetMacInfoIoctl: device \"%s\" in use by another instance?\n", pDrvDescPrivate->pPDev->name);
+            ERR("GetMacInfoIoctl: device \"%s\" in use by another instance?\n", dev_name(pDrvDescPrivate->pDev));
             nRetVal = -EBUSY;
             goto Exit;
         }
@@ -3324,6 +3422,7 @@ static int GetMacInfoIoctl(ATEMSYS_T_DEVICE_DESC* pDevDesc, unsigned long ioctlP
         oInfo.dwPhyAddr            = pDrvDescPrivate->MacInfo.dwPhyAddr;
         oInfo.bPhyResetSupported   = pDrvDescPrivate->MacInfo.bPhyResetSupported;
         oInfo.bPhyC45Required      = pDrvDescPrivate->MacInfo.bPhyC45Required;
+        oInfo.bIommuSupported      = pDrvDescPrivate->MacInfo.bIommuSupported;
 
         /* save descriptor of callee for cleanup on device_release */
         pDrvDescPrivate->pDevDesc = pDevDesc;
@@ -3382,7 +3481,7 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
         if (NULL == S_oAtemsysWorkerThreadDesc.pfNextTask)
         {
             S_oAtemsysWorkerThreadDesc.pfNextTask = StartPhyThread;
-            S_oAtemsysWorkerThreadDesc.pNextTaskData = (void*)pDrvDescPrivate->pPDev;
+            S_oAtemsysWorkerThreadDesc.pNextTaskData = (void*)pDrvDescPrivate;
         }
         else
         {
@@ -3393,7 +3492,7 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
         }
         mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
 #else
-        pDrvDescPrivate->etx_thread_StartPhy = kthread_create(StartPhyThread,(void*)pDrvDescPrivate->pPDev,"StartPhyThread");
+        pDrvDescPrivate->etx_thread_StartPhy = kthread_create(StartPhyThread,(void*)pDrvDescPrivate,"StartPhyThread");
         if(NULL == pDrvDescPrivate->etx_thread_StartPhy)
         {
             ERR("PhyStartStopIoctl: Cannot create kthread for StartPhyThread\n");
@@ -3410,7 +3509,7 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
         if (NULL == S_oAtemsysWorkerThreadDesc.pfNextTask)
         {
             S_oAtemsysWorkerThreadDesc.pfNextTask = StopPhyThread;
-            S_oAtemsysWorkerThreadDesc.pNextTaskData = (void*)pDrvDescPrivate->pPDev;
+            S_oAtemsysWorkerThreadDesc.pNextTaskData = (void*)pDrvDescPrivate;
         }
         else
         {
@@ -3421,7 +3520,7 @@ static int PhyStartStopIoctl( unsigned long ioctlParam)
         }
         mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
 #else
-        pDrvDescPrivate->etx_thread_StopPhy = kthread_create(StopPhyThread,(void*)pDrvDescPrivate->pPDev,"StopPhyThread");
+        pDrvDescPrivate->etx_thread_StopPhy = kthread_create(StopPhyThread,(void*)pDrvDescPrivate,"StopPhyThread");
         if(NULL == pDrvDescPrivate->etx_thread_StopPhy)
         {
             ERR("PhyStartStopIoctl: Cannot create kthread for StopPhyThread\n");
@@ -3718,7 +3817,7 @@ static int MdioProbe(struct net_device* ndev)
 
         if (nPhy_id >= PHY_MAX_ADDR)
         {
-            INF("%s: no PHY, assuming direct connection to switch\n", pDrvDescPrivate->pPDev->name);
+            INF("%s: no PHY, assuming direct connection to switch\n", dev_name(pDrvDescPrivate->pDev));
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0))
             strscpy(mdio_bus_id, "fixed-0", MII_BUS_ID_SIZE);
 #else
@@ -3733,7 +3832,7 @@ static int MdioProbe(struct net_device* ndev)
 
     if ((NULL == pPhyDev) || IS_ERR(pPhyDev))
     {
-        ERR("%s: Could not attach to PHY (pPhyDev %p)\n", pDrvDescPrivate->pPDev->name, pPhyDev);
+        ERR("%s: Could not attach to PHY (pPhyDev %p)\n", dev_name(pDrvDescPrivate->pDev), pPhyDev);
         return -ENODEV;
     }
 
@@ -3845,10 +3944,8 @@ static int MdioWrite(struct mii_bus* pBus, int mii_id, int regnum, u16 value)
     return nRetVal;
 }
 
-static int MdioInit(struct platform_device* pPDev)
+static int MdioInit(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
 {
-    struct net_device* pNDev = platform_get_drvdata(pPDev);
-    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
     int nRes = -ENXIO;
 
     if (pDrvDescPrivate->MacInfo.bNoMdioBus)
@@ -3868,9 +3965,9 @@ static int MdioInit(struct platform_device* pPDev)
     pDrvDescPrivate->pMdioBus->name = "atemsys_mdio_bus";
     pDrvDescPrivate->pMdioBus->read = &MdioRead;
     pDrvDescPrivate->pMdioBus->write = &MdioWrite;
-    snprintf(pDrvDescPrivate->pMdioBus->id, MII_BUS_ID_SIZE, "%s-%x", pPDev->name, pDrvDescPrivate->nDev_id + 1);
+    snprintf(pDrvDescPrivate->pMdioBus->id, MII_BUS_ID_SIZE, "%s-%x", dev_name(pDrvDescPrivate->pDev), pDrvDescPrivate->nDev_id + 1);
     pDrvDescPrivate->pMdioBus->priv = pDrvDescPrivate;
-    pDrvDescPrivate->pMdioBus->parent = &pPDev->dev;
+    pDrvDescPrivate->pMdioBus->parent = pDrvDescPrivate->pDev;
 
     if (NULL != pDrvDescPrivate->pMdioDevNode)
     {
@@ -3898,11 +3995,8 @@ Exit:
 }
 
 
-static int StopPhy(struct platform_device* pPDev)
+static int StopPhy(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
 {
-    struct net_device* pNDev = platform_get_drvdata(pPDev);
-    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
-
     /* phy */
     if (NULL != pDrvDescPrivate->pPhyDev)
     {
@@ -3925,24 +4019,22 @@ static int StopPhy(struct platform_device* pPDev)
     return 0;
 }
 
-static int StartPhy(struct platform_device* pPDev)
+static int StartPhy(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
 {
-    struct net_device* pNDev = platform_get_drvdata(pPDev);
-    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
     int nRes = -1;
 
     if ((NULL != pDrvDescPrivate->pPhyDev) || (NULL != pDrvDescPrivate->pMdioBus))
     {
-        StopPhy(pPDev);
+        StopPhy(pDrvDescPrivate);
     }
 
     /* mdio bus */
-    nRes = MdioInit(pPDev);
+    nRes = MdioInit(pDrvDescPrivate);
     if (0 != nRes)
     {
         pDrvDescPrivate->pMdioBus = NULL;
     }
-    nRes = MdioProbe(pNDev);
+    nRes = MdioProbe(pDrvDescPrivate->netdev);
     if (0 != nRes)
     {
         /* remove mdio bus */
@@ -3963,34 +4055,31 @@ static int StartPhy(struct platform_device* pPDev)
 
 static int StartPhyThread(void* data)
 {
-    struct platform_device* pPDev = (struct platform_device*)data;
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = (ATEMSYS_T_DRV_DESC_PRIVATE*)data;
 
-    StartPhy(pPDev);
+    StartPhy(pDrvDescPrivate);
 
     return 0;
 }
 
 static int StopPhyThread(void* data)
 {
-    struct platform_device* pPDev = (struct platform_device*)data;
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = (ATEMSYS_T_DRV_DESC_PRIVATE*)data;
 
-    StopPhy(pPDev);
+    StopPhy(pDrvDescPrivate);
 
     return 0;
 }
 
-static int StopPhyWithoutIoctlMdioHandling(struct platform_device* pPDev)
+static int StopPhyWithoutIoctlMdioHandling(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
 {
-    struct net_device* pNDev = platform_get_drvdata(pPDev);
-    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = netdev_priv(pNDev);
-
     /* start StopPhy as thread */
 #if (defined CONFIG_XENO_COBALT)
     mutex_lock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
     if (NULL == S_oAtemsysWorkerThreadDesc.pfNextTask)
     {
         S_oAtemsysWorkerThreadDesc.pfNextTask = StopPhyThread;
-        S_oAtemsysWorkerThreadDesc.pNextTaskData = (void*)pDrvDescPrivate->pPDev;
+        S_oAtemsysWorkerThreadDesc.pNextTaskData = (void*)pDrvDescPrivate;
     }
     else
     {
@@ -3999,7 +4088,7 @@ static int StopPhyWithoutIoctlMdioHandling(struct platform_device* pPDev)
     }
     mutex_unlock(&S_oAtemsysWorkerThreadDesc.WorkerTask_mutex);
 #else
-    pDrvDescPrivate->etx_thread_StopPhy = kthread_create(StopPhyThread,(void*)pDrvDescPrivate->pPDev,"StopPhyThread");
+    pDrvDescPrivate->etx_thread_StopPhy = kthread_create(StopPhyThread,(void*)pDrvDescPrivate,"StopPhyThread");
     if(NULL == pDrvDescPrivate->etx_thread_StopPhy)
     {
         ERR("Cannot create kthread for StopPhyThread\n");
@@ -4056,14 +4145,14 @@ static int ResetPhyViaGpio(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
     if (!pDrvDescPrivate->bPhyResetGpioPinOwner)
 #endif
     {
-        nRes = devm_gpio_request_one(&pDrvDescPrivate->pPDev->dev, pDrvDescPrivate->nPhyResetGpioPin,
+        nRes = devm_gpio_request_one(pDrvDescPrivate->pDev, pDrvDescPrivate->nPhyResetGpioPin,
             pDrvDescPrivate->bPhyResetGpioActiveHigh ? GPIOF_OUT_INIT_HIGH : GPIOF_OUT_INIT_LOW,
             "atemsys-phy-reset");
         pDrvDescPrivate->bPhyResetGpioPinOwner = true;
     }
     if (nRes)
     {
-        ERR("%s: failed to get atemsys-phy-reset-gpios: %d \n", pDrvDescPrivate->pPDev->name, nRes);
+        ERR("%s: failed to get atemsys-phy-reset-gpios: %d \n", dev_name(pDrvDescPrivate->pDev), nRes);
         return nRes;
     }
 
@@ -4075,7 +4164,7 @@ static int ResetPhyViaGpio(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate)
     gpio_set_value_cansleep(pDrvDescPrivate->nPhyResetGpioPin, !pDrvDescPrivate->bPhyResetGpioActiveHigh);
 
 #if (LINUX_VERSION_CODE <= KERNEL_VERSION(6,0,0))
-    devm_gpio_free(&pDrvDescPrivate->pPDev->dev, pDrvDescPrivate->nPhyResetGpioPin);
+    devm_gpio_free(pDrvDescPrivate->pDev, pDrvDescPrivate->nPhyResetGpioPin);
 #endif
 
     if (!pDrvDescPrivate->nPhyResetPostDelay)
@@ -4143,6 +4232,301 @@ static struct device_node* AtemsysResolveRef(struct device_node* pDevNode,
     return pNode;
 }
 
+/* Parse atemsys-relevant properties (ident, instance, phy-mode, phy-handle, mdio-bus ownership, PHY reset) from an OF node into pDrvDescPrivate->MacInfo */
+static void AtemsysGetMacInfoFromDtNode(ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate,
+                                        struct device_node* pDevNode, const char* szName)
+{
+    unsigned int    dwTemp          = 0;
+    const char*     szTempString    = NULL;
+    unsigned int    adwTempValues[6];
+    int             nRes            = 0;
+
+    /* get identification */
+    nRes = of_property_read_string(pDevNode, "atemsys-Ident", &szTempString);
+    if ((0 == nRes) && (NULL != szTempString))
+    {
+        INF("%s: atemsys-Ident: %s\n", szName, szTempString);
+        memcpy(pDrvDescPrivate->MacInfo.szIdent,szTempString, EC_LINKOS_IDENT_MAX_LEN);
+    }
+    else
+    {
+        INF("%s: Missing atemsys-Ident in the Device Tree\n", szName);
+    }
+
+    /* get instance number */
+    nRes = of_property_read_u32(pDevNode, "atemsys-Instance", &dwTemp);
+    if (0 == nRes)
+    {
+        INF("%s: atemsys-Instance: %d\n", szName , dwTemp);
+        pDrvDescPrivate->MacInfo.dwInstance = dwTemp;
+    }
+    else
+    {
+        pDrvDescPrivate->MacInfo.dwInstance = 0;
+        INF("%s: Missing atemsys-Instance in the Device Tree\n", szName);
+    }
+
+    /* status */
+    szTempString = NULL;
+    nRes = of_property_read_string(pDevNode, "status", &szTempString);
+    if ((0 == nRes) && (NULL != szTempString))
+    {
+        DBG("%s: status: %s\n", szName , szTempString);
+        pDrvDescPrivate->MacInfo.dwStatus = (strcmp(szTempString, "okay")==0)? 1:0;
+    }
+
+    /* interrupt-parent */
+    nRes = of_property_read_u32(pDevNode, "interrupt-parent", &dwTemp);
+    if (0 == nRes)
+    {
+        DBG("%s: interrupt-parent: %d\n", szName , dwTemp);
+    }
+
+    /* interrupts */
+    nRes = of_property_read_u32_array(pDevNode, "interrupts", adwTempValues, 6);
+    if (0 == nRes)
+    {
+        DBG("%s: interrupts: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n", szName ,
+            adwTempValues[0], adwTempValues[1], adwTempValues[2], adwTempValues[3], adwTempValues[4], adwTempValues[5]);
+    }
+
+    /* reg */
+#if (defined __arm__)
+    nRes = of_property_read_u32_array(pDevNode, "reg", adwTempValues, 2);
+    if (0 == nRes)
+    {
+        DBG("%s: reg: 0x%x 0x%x\n", szName , adwTempValues[0], adwTempValues[1]);
+        pDrvDescPrivate->MacInfo.qwRegAddr = adwTempValues[0];
+        pDrvDescPrivate->MacInfo.dwRegSize = adwTempValues[1];
+    }
+#endif
+
+    /* get phy-mode */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,5,0))
+    nRes = of_get_phy_mode(pDevNode, &pDrvDescPrivate->PhyInterface);
+    if ((strcmp(pDrvDescPrivate->MacInfo.szIdent, "CPSWG") == 0) && (0==pDrvDescPrivate->PhyInterface))
+    {
+        struct device_node* pDevNodeNew = pDevNode;
+        pDevNodeNew = of_get_child_by_name(pDevNodeNew, "ethernet-ports");
+        pDevNodeNew = of_get_child_by_name(pDevNodeNew, "port");
+        nRes = of_get_phy_mode(pDevNodeNew, &pDrvDescPrivate->PhyInterface);
+    }
+#else
+    pDrvDescPrivate->PhyInterface = of_get_phy_mode(pDevNode);
+#endif
+    switch (pDrvDescPrivate->PhyInterface)
+    {
+        case PHY_INTERFACE_MODE_MII:
+        {
+            INF("%s: phy-mode: MII\n", szName);
+            pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_MII;
+        } break;
+        case PHY_INTERFACE_MODE_RMII:
+        {
+            INF("%s: phy-mode: RMII\n", szName);
+            pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_RMII;
+        } break;
+        case PHY_INTERFACE_MODE_GMII:
+        {
+            INF("%s: phy-mode: GMII\n", szName);
+            pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_GMII;
+        } break;
+        case PHY_INTERFACE_MODE_SGMII:
+        {
+            INF("%s: phy-mode: SGMII\n", szName);
+            pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_SGMII;
+        } break;
+        case PHY_INTERFACE_MODE_RGMII_ID:
+        case PHY_INTERFACE_MODE_RGMII_RXID:
+        case PHY_INTERFACE_MODE_RGMII_TXID:
+        case PHY_INTERFACE_MODE_RGMII:
+        {
+            INF("%s: phy-mode: RGMII\n", szName);
+            pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_RGMII;
+        } break;
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(5,14,0))
+        case PHY_INTERFACE_MODE_10GBASER:
+        {
+            INF("%s: phy-mode: 10GBASER\n", szName);
+            pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_10GBASER;
+        } break;
+        case PHY_INTERFACE_MODE_25GBASER:
+        {
+            INF("%s: phy-mode: 25GBASER\n", szName);
+            pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_25GBASER;
+        } break;
+#endif
+        default:
+        {
+            pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_RGMII;
+            pDrvDescPrivate->PhyInterface = PHY_INTERFACE_MODE_RGMII;
+            WRN("%s: Missing phy-mode in the Device Tree, using RGMII\n", szName);
+        }
+    }
+
+    /* pinctrl-names */
+    szTempString = NULL;
+    nRes = of_property_read_string(pDevNode, "pinctrl-names", &szTempString);
+    if ((0 == nRes) && (NULL != szTempString))
+    {
+        DBG("%s: pinctrl-names: %s\n", szName , szTempString);
+    }
+
+    /* PHY address*/
+    pDrvDescPrivate->MacInfo.dwPhyAddr = PHY_AUTO_ADDR;
+    pDrvDescPrivate->pPhyNode = of_parse_phandle(pDevNode, "phy-handle", 0);
+    if ((strcmp(pDrvDescPrivate->MacInfo.szIdent, "CPSWG") == 0) && (NULL == pDrvDescPrivate->pPhyNode))
+    {
+        struct device_node* pDevNodeNew = pDevNode;
+        pDevNodeNew = of_get_child_by_name(pDevNodeNew, "ethernet-ports");
+        pDevNodeNew = of_get_child_by_name(pDevNodeNew, "port");
+        pDrvDescPrivate->pPhyNode = of_parse_phandle(pDevNodeNew, "phy-handle", 0);
+    }
+    if (NULL != pDrvDescPrivate->pPhyNode)
+    {
+        nRes = of_property_read_u32(pDrvDescPrivate->pPhyNode, "reg", &dwTemp);
+        if (0 == nRes)
+        {
+            INF("%s: PHY mdio addr: %d\n", szName , dwTemp);
+            pDrvDescPrivate->MacInfo.dwPhyAddr = dwTemp;
+        }
+        if (of_device_is_compatible(pDrvDescPrivate->pPhyNode, "ethernet-phy-ieee802.3-c45"))
+        {
+            INF("%s: PHY C45 compatible\n", szName);
+            pDrvDescPrivate->MacInfo.bPhyC45Required = true;
+        }
+    }
+    else
+    {
+        int nLen;
+        const __be32* pPhyId;
+        pPhyId = of_get_property(pDevNode, "phy_id", &nLen);
+
+        if (nLen == (sizeof(__be32) * 2))
+        {
+            pDrvDescPrivate->pMdioNode = of_find_node_by_phandle(be32_to_cpup(pPhyId));
+            pDrvDescPrivate->MacInfo.dwPhyAddr = be32_to_cpup(pPhyId+1);
+        }
+        else
+        {
+            INF("%s: Missing phy-handle in the Device Tree\n", szName);
+        }
+    }
+
+    /* check if mdio node is sub-node and mac has own mdio bus */
+    {
+        pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "mdio");
+        if (NULL == pDrvDescPrivate->pMdioDevNode)
+            pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "mdio0");
+        if (NULL == pDrvDescPrivate->pMdioDevNode)
+            pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "mdio1");
+        if (NULL == pDrvDescPrivate->pMdioDevNode)
+            pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "phy");
+        if (NULL == pDrvDescPrivate->pMdioDevNode)
+            pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "ethernet-phy");
+
+        if ((NULL == pDrvDescPrivate->pMdioDevNode) && (NULL != pDrvDescPrivate->pPhyNode))
+        {
+            /* check if phy node is subnode and use first sub-node as node for mdio bus */
+            struct device_node *pTempNode = of_get_parent(pDrvDescPrivate->pPhyNode);
+            if ((NULL != pTempNode) && (pTempNode == pDevNode))
+            {
+                pDrvDescPrivate->pMdioDevNode = pDrvDescPrivate->pPhyNode;
+            }
+            else if ((NULL != pTempNode) && (of_get_parent(pTempNode) == pDevNode))
+            {
+                pDrvDescPrivate->pMdioDevNode = pTempNode;
+            }
+        }
+
+        if (NULL != pDrvDescPrivate->pMdioDevNode)
+        {
+            /* mdio bus is owned by current mac instance */
+            pDrvDescPrivate->MacInfo.bNoMdioBus = false;
+            INF("%s: mac has mdio bus.\n", szName );
+        }
+        else if ((NULL != pDrvDescPrivate->pPhyNode) || (NULL != pDrvDescPrivate->pMdioNode))
+        {
+            /* mdio bus owned by another mac instance */
+            pDrvDescPrivate->MacInfo.bNoMdioBus = true;
+            INF("%s: mac has no mdio bus, uses mdio bus of other instance.\n", szName);
+        }
+        else
+        {
+            /* legacy mode: no node for mdio bus in device tree defined */
+            pDrvDescPrivate->MacInfo.bNoMdioBus = false;
+            INF("%s: handle mdio bus without device tree node.\n", szName );
+        }
+        if (pDrvDescPrivate->pMdioDevNode == pDrvDescPrivate->pPhyNode)
+        {
+            pDrvDescPrivate->pMdioDevNode = NULL;
+        }
+    }
+
+    /* PHY reset data */
+    if (of_find_property(pDevNode, "atemsys-phy-reset-gpios", NULL))
+    {
+        struct device_node* pNode;
+        const char* pProp;
+        u32 nTmp;
+
+        pNode = AtemsysResolveRef(pDevNode, "atemsys-phy-reset-gpios", &pProp);
+        pDrvDescPrivate->nPhyResetGpioPin = of_get_named_gpio(
+            pNode ? pNode : pDevNode,
+            pNode ? pProp : "atemsys-phy-reset-gpios", 0);
+        if (NULL != pNode) { of_node_put(pNode); }
+
+        pNode = AtemsysResolveRef(pDevNode, "atemsys-phy-reset-duration", &pProp);
+        if (0 != of_property_read_u32(pNode ? pNode : pDevNode,
+                                      pNode ? pProp : "atemsys-phy-reset-duration", &nTmp))
+        {
+            nTmp = 0;
+        }
+        if (NULL != pNode) { of_node_put(pNode); }
+        pDrvDescPrivate->nPhyResetDuration = (int)nTmp;
+
+        pNode = AtemsysResolveRef(pDevNode, "atemsys-phy-reset-post-delay", &pProp);
+        if (0 != of_property_read_u32(pNode ? pNode : pDevNode,
+                                      pNode ? pProp : "atemsys-phy-reset-post-delay", &nTmp))
+        {
+            nTmp = 0;
+        }
+        if (NULL != pNode) { of_node_put(pNode); }
+        pDrvDescPrivate->nPhyResetPostDelay = (int)nTmp;
+
+        pNode = AtemsysResolveRef(pDevNode, "atemsys-phy-reset-active-high", &pProp);
+        pDrvDescPrivate->bPhyResetGpioActiveHigh = of_property_read_bool(
+            pNode ? pNode : pDevNode,
+            pNode ? pProp : "atemsys-phy-reset-active-high");
+        if (NULL != pNode) { of_node_put(pNode); }
+
+        if ((0 <= pDrvDescPrivate->nPhyResetGpioPin) && gpio_is_valid(pDrvDescPrivate->nPhyResetGpioPin))
+        {
+            pDrvDescPrivate->MacInfo.bPhyResetSupported = true;
+            DBG("%s: PhyReset ready: GpioPin: %d; Duration %d, bActiveHigh %d, post delay %d\n", szName,
+                pDrvDescPrivate->nPhyResetGpioPin, pDrvDescPrivate->nPhyResetDuration,
+                pDrvDescPrivate->bPhyResetGpioActiveHigh, pDrvDescPrivate->nPhyResetPostDelay);
+        }
+    }
+
+    /* IOMMU support (e.g. "iommus = <&smmu streamid>;" in the device tree) */
+    {
+        struct of_phandle_args oIommuSpec;
+
+        nRes = of_parse_phandle_with_args(pDevNode, "iommus", "#iommu-cells", 0, &oIommuSpec);
+        if (0 == nRes)
+        {
+            pDrvDescPrivate->MacInfo.bIommuSupported = true;
+            DBG("%s: IOMMU supported\n", szName);
+            of_node_put(oIommuSpec.np);
+        }
+        else
+        {
+            pDrvDescPrivate->MacInfo.bIommuSupported = false;
+        }
+    }
+}
+
 static int EthernetDriverProbe(struct platform_device* pPDev)
 {
     ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
@@ -4191,6 +4575,7 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
     pDrvDescPrivate = netdev_priv(pNDev);
     memset(pDrvDescPrivate, 0, sizeof(ATEMSYS_T_DRV_DESC_PRIVATE));
     pDrvDescPrivate->pPDev = pPDev;
+    pDrvDescPrivate->pDev = &pPDev->dev;
     pDrvDescPrivate->nDev_id  = nDev_id++;
     platform_set_drvdata(pPDev, pNDev);
     pDrvDescPrivate->netdev = pNDev;
@@ -4302,279 +4687,7 @@ static int EthernetDriverProbe(struct platform_device* pPDev)
     DBG("%s: found %d Resets\n", pPDev->name , pDrvDescPrivate->nResetCtlCnt);
 
     /* get prepare data for atemsys and print some data to kernel log */
-    {
-        unsigned int    dwTemp          = 0;
-        const char*     szTempString    = NULL;
-        unsigned int    adwTempValues[6];
-
-        /* get identification */
-        nRes = of_property_read_string(pDevNode, "atemsys-Ident", &szTempString);
-        if ((0 == nRes) && (NULL != szTempString))
-        {
-            INF("%s: atemsys-Ident: %s\n", pPDev->name, szTempString);
-            memcpy(pDrvDescPrivate->MacInfo.szIdent,szTempString, EC_LINKOS_IDENT_MAX_LEN);
-        }
-        else
-        {
-            INF("%s: Missing atemsys-Ident in the Device Tree\n", pPDev->name);
-        }
-
-        /* get instance number */
-        nRes = of_property_read_u32(pDevNode, "atemsys-Instance", &dwTemp);
-        if (0 == nRes)
-        {
-            INF("%s: atemsys-Instance: %d\n", pPDev->name , dwTemp);
-            pDrvDescPrivate->MacInfo.dwInstance = dwTemp;
-        }
-        else
-        {
-            pDrvDescPrivate->MacInfo.dwInstance = 0;
-            INF("%s: Missing atemsys-Instance in the Device Tree\n", pPDev->name);
-        }
-
-        /* status */
-        szTempString = NULL;
-        nRes = of_property_read_string(pDevNode, "status", &szTempString);
-        if ((0 == nRes) && (NULL != szTempString))
-        {
-            DBG("%s: status: %s\n", pPDev->name , szTempString);
-            pDrvDescPrivate->MacInfo.dwStatus = (strcmp(szTempString, "okay")==0)? 1:0;
-        }
-
-        /* interrupt-parent */
-        nRes = of_property_read_u32(pDevNode, "interrupt-parent", &dwTemp);
-        if (0 == nRes)
-        {
-            DBG("%s: interrupt-parent: %d\n", pPDev->name , dwTemp);
-        }
-
-        /* interrupts */
-        nRes = of_property_read_u32_array(pDevNode, "interrupts", adwTempValues, 6);
-        if (0 == nRes)
-        {
-            DBG("%s: interrupts: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n", pPDev->name ,
-                adwTempValues[0], adwTempValues[1], adwTempValues[2], adwTempValues[3], adwTempValues[4], adwTempValues[5]);
-        }
-
-        /* reg */
-#if (defined __arm__)
-        nRes = of_property_read_u32_array(pDevNode, "reg", adwTempValues, 2);
-        if (0 == nRes)
-        {
-            DBG("%s: reg: 0x%x 0x%x\n", pPDev->name , adwTempValues[0], adwTempValues[1]);
-            pDrvDescPrivate->MacInfo.qwRegAddr = adwTempValues[0];
-            pDrvDescPrivate->MacInfo.dwRegSize = adwTempValues[1];
-        }
-#endif
-
-        /* get phy-mode */
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,5,0))
-        nRes = of_get_phy_mode(pPDev->dev.of_node, &pDrvDescPrivate->PhyInterface);
-        if ((strcmp(pDrvDescPrivate->MacInfo.szIdent, "CPSWG") == 0) && (0==pDrvDescPrivate->PhyInterface))
-        {
-            struct device_node* pDevNodeNew = pDevNode;
-            pDevNodeNew = of_get_child_by_name(pDevNodeNew, "ethernet-ports");
-            pDevNodeNew = of_get_child_by_name(pDevNodeNew, "port");
-            nRes = of_get_phy_mode(pDevNodeNew, &pDrvDescPrivate->PhyInterface);
-        }
-#else
-        pDrvDescPrivate->PhyInterface = of_get_phy_mode(pPDev->dev.of_node);
-#endif
-        switch (pDrvDescPrivate->PhyInterface)
-        {
-            case PHY_INTERFACE_MODE_MII:
-            {
-                INF("%s: phy-mode: MII\n", pPDev->name);
-                pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_MII;
-            } break;
-            case PHY_INTERFACE_MODE_RMII:
-            {
-                INF("%s: phy-mode: RMII\n", pPDev->name);
-                pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_RMII;
-            } break;
-            case PHY_INTERFACE_MODE_GMII:
-            {
-                INF("%s: phy-mode: GMII\n", pPDev->name);
-                pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_GMII;
-            } break;
-            case PHY_INTERFACE_MODE_SGMII:
-            {
-                INF("%s: phy-mode: SGMII\n", pPDev->name);
-                pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_SGMII;
-            } break;
-            case PHY_INTERFACE_MODE_RGMII_ID:
-            case PHY_INTERFACE_MODE_RGMII_RXID:
-            case PHY_INTERFACE_MODE_RGMII_TXID:
-            case PHY_INTERFACE_MODE_RGMII:
-            {
-                INF("%s: phy-mode: RGMII\n", pPDev->name);
-                pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_RGMII;
-            } break;
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(5,14,0))
-            case PHY_INTERFACE_MODE_10GBASER:
-            {
-                INF("%s: phy-mode: 10GBASER\n", pPDev->name);
-                pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_10GBASER;
-            } break;
-            case PHY_INTERFACE_MODE_25GBASER:
-            {
-                INF("%s: phy-mode: 25GBASER\n", pPDev->name);
-                pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_25GBASER;
-            } break;
-#endif            
-            default:
-            {
-                pDrvDescPrivate->MacInfo.ePhyMode = eATEMSYS_PHY_RGMII;
-                pDrvDescPrivate->PhyInterface = PHY_INTERFACE_MODE_RGMII;
-                WRN("%s: Missing phy-mode in the Device Tree, using RGMII\n", pPDev->name);
-            }
-        }
-
-        /* pinctrl-names */
-        szTempString = NULL;
-        nRes = of_property_read_string(pDevNode, "pinctrl-names", &szTempString);
-        if ((0 == nRes) && (NULL != szTempString))
-        {
-            DBG("%s: pinctrl-names: %s\n", pPDev->name , szTempString);
-        }
-
-        /* PHY address*/
-        pDrvDescPrivate->MacInfo.dwPhyAddr = PHY_AUTO_ADDR;
-        pDrvDescPrivate->pPhyNode = of_parse_phandle(pDevNode, "phy-handle", 0);
-        if ((strcmp(pDrvDescPrivate->MacInfo.szIdent, "CPSWG") == 0) && (NULL == pDrvDescPrivate->pPhyNode))
-        {
-            struct device_node* pDevNodeNew = pDevNode;
-            pDevNodeNew = of_get_child_by_name(pDevNodeNew, "ethernet-ports");
-            pDevNodeNew = of_get_child_by_name(pDevNodeNew, "port");
-            pDrvDescPrivate->pPhyNode = of_parse_phandle(pDevNodeNew, "phy-handle", 0);
-        }
-        if (NULL != pDrvDescPrivate->pPhyNode)
-        {
-            nRes = of_property_read_u32(pDrvDescPrivate->pPhyNode, "reg", &dwTemp);
-            if (0 == nRes)
-            {
-                INF("%s: PHY mdio addr: %d\n", pPDev->name , dwTemp);
-                pDrvDescPrivate->MacInfo.dwPhyAddr = dwTemp;
-            }
-            if (of_device_is_compatible(pDrvDescPrivate->pPhyNode, "ethernet-phy-ieee802.3-c45"))
-            {
-                INF("%s: PHY C45 compatible\n", pPDev->name);
-                pDrvDescPrivate->MacInfo.bPhyC45Required = true;
-            }
-        }
-        else
-        {
-            int nLen;
-            const __be32* pPhyId;
-            pPhyId = of_get_property(pDevNode, "phy_id", &nLen);
-
-            if (nLen == (sizeof(__be32) * 2))
-            {
-                pDrvDescPrivate->pMdioNode = of_find_node_by_phandle(be32_to_cpup(pPhyId));
-                pDrvDescPrivate->MacInfo.dwPhyAddr = be32_to_cpup(pPhyId+1);
-            }
-            else
-            {
-                INF("%s: Missing phy-handle in the Device Tree\n", pPDev->name);
-            }
-        }
-
-        /* check if mdio node is sub-node and mac has own mdio bus */
-        {
-            pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "mdio");
-            if (NULL == pDrvDescPrivate->pMdioDevNode)
-                pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "mdio0");
-            if (NULL == pDrvDescPrivate->pMdioDevNode)
-                pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "mdio1");
-            if (NULL == pDrvDescPrivate->pMdioDevNode)
-                pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "phy");
-            if (NULL == pDrvDescPrivate->pMdioDevNode)
-                pDrvDescPrivate->pMdioDevNode = of_get_child_by_name(pDevNode, "ethernet-phy");
-
-            if ((NULL == pDrvDescPrivate->pMdioDevNode) && (NULL != pDrvDescPrivate->pPhyNode))
-            {
-                /* check if phy node is subnode and use first sub-node as node for mdio bus */
-                struct device_node *pTempNode = of_get_parent(pDrvDescPrivate->pPhyNode);
-                if ((NULL != pTempNode) && (pTempNode == pDevNode))
-                {
-                    pDrvDescPrivate->pMdioDevNode = pDrvDescPrivate->pPhyNode;
-                }
-                else if ((NULL != pTempNode) && (of_get_parent(pTempNode) == pDevNode))
-                {
-                    pDrvDescPrivate->pMdioDevNode = pTempNode;
-                }
-            }
-
-            if (NULL != pDrvDescPrivate->pMdioDevNode)
-            {
-                /* mdio bus is owned by current mac instance */
-                pDrvDescPrivate->MacInfo.bNoMdioBus = false;
-                INF("%s: mac has mdio bus.\n", pPDev->name );
-            }
-            else if ((NULL != pDrvDescPrivate->pPhyNode) || (NULL != pDrvDescPrivate->pMdioNode))
-            {
-                /* mdio bus owned by another mac instance */
-                pDrvDescPrivate->MacInfo.bNoMdioBus = true;
-                INF("%s: mac has no mdio bus, uses mdio bus of other instance.\n", pPDev->name);
-            }
-            else
-            {
-                /* legacy mode: no node for mdio bus in device tree defined */
-                pDrvDescPrivate->MacInfo.bNoMdioBus = false;
-                INF("%s: handle mdio bus without device tree node.\n", pPDev->name );
-            }
-            if (pDrvDescPrivate->pMdioDevNode == pDrvDescPrivate->pPhyNode)
-            {
-                pDrvDescPrivate->pMdioDevNode = NULL;
-            }
-        }
-
-        /* PHY reset data */
-        if (of_find_property(pDevNode, "atemsys-phy-reset-gpios", NULL))
-        {
-            struct device_node* pNode;
-            const char* pProp;
-            u32 nTmp;
-
-            pNode = AtemsysResolveRef(pDevNode, "atemsys-phy-reset-gpios", &pProp);
-            pDrvDescPrivate->nPhyResetGpioPin = of_get_named_gpio(
-                pNode ? pNode : pDevNode,
-                pNode ? pProp : "atemsys-phy-reset-gpios", 0);
-            if (NULL != pNode) { of_node_put(pNode); }
-
-            pNode = AtemsysResolveRef(pDevNode, "atemsys-phy-reset-duration", &pProp);
-            if (0 != of_property_read_u32(pNode ? pNode : pDevNode,
-                                          pNode ? pProp : "atemsys-phy-reset-duration", &nTmp))
-            {
-                nTmp = 0;
-            }
-            if (NULL != pNode) { of_node_put(pNode); }
-            pDrvDescPrivate->nPhyResetDuration = (int)nTmp;
-
-            pNode = AtemsysResolveRef(pDevNode, "atemsys-phy-reset-post-delay", &pProp);
-            if (0 != of_property_read_u32(pNode ? pNode : pDevNode,
-                                          pNode ? pProp : "atemsys-phy-reset-post-delay", &nTmp))
-            {
-                nTmp = 0;
-            }
-            if (NULL != pNode) { of_node_put(pNode); }
-            pDrvDescPrivate->nPhyResetPostDelay = (int)nTmp;
-
-            pNode = AtemsysResolveRef(pDevNode, "atemsys-phy-reset-active-high", &pProp);
-            pDrvDescPrivate->bPhyResetGpioActiveHigh = of_property_read_bool(
-                pNode ? pNode : pDevNode,
-                pNode ? pProp : "atemsys-phy-reset-active-high");
-            if (NULL != pNode) { of_node_put(pNode); }
-
-            if ((0 <= pDrvDescPrivate->nPhyResetGpioPin) && gpio_is_valid(pDrvDescPrivate->nPhyResetGpioPin))
-            {
-                pDrvDescPrivate->MacInfo.bPhyResetSupported = true;
-                DBG("%s: PhyReset ready: GpioPin: %d; Duration %d, bActiveHigh %d, post delay %d\n", pPDev->name,
-                    pDrvDescPrivate->nPhyResetGpioPin, pDrvDescPrivate->nPhyResetDuration,
-                    pDrvDescPrivate->bPhyResetGpioActiveHigh, pDrvDescPrivate->nPhyResetPostDelay);
-            }
-        }
-    }
+    AtemsysGetMacInfoFromDtNode(pDrvDescPrivate, pDevNode, pPDev->name);
 
     /* insert device to array */
     for (dwIndex = 0; dwIndex < ATEMSYS_MAX_NUMBER_DRV_INSTANCES; dwIndex++)
@@ -4811,7 +4924,7 @@ static int CleanUpEthernetDriverOnRelease(ATEMSYS_T_DEVICE_DESC* pDevDesc)
 
         if (pDrvDescPrivate->pDevDesc == pDevDesc)
         {
-            INF("%s: Cleanup: pDevDesc = 0x%px\n", pDrvDescPrivate->pPDev->name, pDevDesc);
+            INF("%s: Cleanup: pDevDesc = 0x%px\n", dev_name(pDrvDescPrivate->pDev), pDevDesc);
 
             /* ensure mdio bus and PHY are down */
             if ((NULL != pDrvDescPrivate->pPhyDev) || (NULL != pDrvDescPrivate->pMdioBus))
@@ -4819,7 +4932,7 @@ static int CleanUpEthernetDriverOnRelease(ATEMSYS_T_DEVICE_DESC* pDevDesc)
                 int timeout = 0;
                 for (timeout = 50; timeout-- < 0; msleep(100))
                 {
-                    nRes = StopPhyWithoutIoctlMdioHandling(pDrvDescPrivate->pPDev);
+                    nRes = StopPhyWithoutIoctlMdioHandling(pDrvDescPrivate);
                     if (-EAGAIN != nRes)
                         break;
                 }
@@ -4862,12 +4975,130 @@ static struct platform_driver mac_driver = {
 #define ATEMSYS_PCI_DRIVER_NAME "atemsys_pci"
 #define PCI_VENDOR_ID_BECKHOFF  0x15EC
 
+#if (defined INCLUDE_ATEMSYS_DT_DRIVER)
+/* Optional PHY management for a PCI function that is described in the device tree */
+static int PciDriverProbePhy(struct pci_dev* pPciDev, ATEMSYS_T_PCI_DRV_DESC_PRIVATE* pPciDrvDescPrivate)
+{
+    struct device_node*         pDevNode = pPciDev->dev.of_node;
+    struct net_device*          pNDev = NULL;
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = NULL;
+    const char*                 szIdent = NULL;
+    unsigned int                dwIndex = 0;
+
+    if (NULL == pDevNode)
+    {
+        /* no device tree node: keep legacy PCI behaviour */
+        return 0;
+    }
+
+    /* opt-in: only handle the PHY if the OF node is marked for atemsys */
+    if ((0 != of_property_read_string(pDevNode, "atemsys-Ident", &szIdent)) || (NULL == szIdent))
+    {
+        DBG("%s: %s: OF node without atemsys-Ident, no PHY handling\n", pci_name(pPciDev), ATEMSYS_PCI_DRIVER_NAME);
+        return 0;
+    }
+
+    /* dummy net device carrying the private descriptor via netdev_priv */
+    pNDev = alloc_etherdev_mqs(sizeof(ATEMSYS_T_DRV_DESC_PRIVATE), 1, 1);
+    if (NULL == pNDev)
+    {
+        return -ENOMEM;
+    }
+    SET_NETDEV_DEV(pNDev, &pPciDev->dev);
+
+    pDrvDescPrivate = netdev_priv(pNDev);
+    memset(pDrvDescPrivate, 0, sizeof(ATEMSYS_T_DRV_DESC_PRIVATE));
+    pDrvDescPrivate->netdev   = pNDev;
+    pDrvDescPrivate->pPDev    = NULL;
+    pDrvDescPrivate->pDev     = &pPciDev->dev;
+    pDrvDescPrivate->pDevNode = pDevNode;
+    pDrvDescPrivate->nDev_id  = 0; /* only relevant for an atemsys-owned mdio bus, unused here */
+
+    AtemsysGetMacInfoFromDtNode(pDrvDescPrivate, pDevNode, pci_name(pPciDev));
+
+    /* insert device to array (matched by Ident+Instance in GetMacInfoIoctl) */
+    for (dwIndex = 0; dwIndex < ATEMSYS_MAX_NUMBER_DRV_INSTANCES; dwIndex++)
+    {
+        if (NULL == S_apDrvDescPrivate[dwIndex])
+        {
+            S_apDrvDescPrivate[dwIndex] = pDrvDescPrivate;
+            pDrvDescPrivate->MacInfo.dwIndex = dwIndex;
+            break;
+        }
+    }
+    if (dwIndex >= ATEMSYS_MAX_NUMBER_DRV_INSTANCES)
+    {
+        ERR("%s: PciDriverProbePhy: Maximum number of instances exceeded!\n", pci_name(pPciDev));
+        if (NULL != pDrvDescPrivate->pMdioDevNode) { of_node_put(pDrvDescPrivate->pMdioDevNode); }
+        of_node_put(pDrvDescPrivate->pPhyNode);
+        free_netdev(pNDev);
+        return -EBUSY;
+    }
+
+    /* prepare mutex for mdio (kept symmetric with the DT path) */
+    mutex_init(&pDrvDescPrivate->mdio_mutex);
+    mutex_init(&pDrvDescPrivate->mdio_order_mutex);
+    init_waitqueue_head(&pDrvDescPrivate->mdio_wait_queue);
+    pDrvDescPrivate->mdio_wait_queue_cnt = 0;
+
+    /* cross reference PCI desc <-> PHY desc */
+    pPciDrvDescPrivate->pPhyDrvDesc = pDrvDescPrivate;
+
+    INF("%s: %s: PHY handling enabled (Ident %s, Instance %d, %s)\n",
+        pci_name(pPciDev), ATEMSYS_PCI_DRIVER_NAME,
+        pDrvDescPrivate->MacInfo.szIdent, pDrvDescPrivate->MacInfo.dwInstance,
+        pDrvDescPrivate->MacInfo.bNoMdioBus ? "shared mdio bus" : "own mdio bus");
+
+    return 0;
+}
+
+static void PciDriverRemovePhy(ATEMSYS_T_PCI_DRV_DESC_PRIVATE* pPciDrvDescPrivate)
+{
+    ATEMSYS_T_DRV_DESC_PRIVATE* pDrvDescPrivate = pPciDrvDescPrivate->pPhyDrvDesc;
+
+    if (NULL == pDrvDescPrivate)
+    {
+        return;
+    }
+
+    /* stop PHY and release mdio bus if still active (safe when never started) */
+    StopPhy(pDrvDescPrivate);
+
+    if (NULL != pDrvDescPrivate->pMdioDevNode)
+    {
+        of_node_put(pDrvDescPrivate->pMdioDevNode);
+    }
+    of_node_put(pDrvDescPrivate->pPhyNode);
+
+    mutex_destroy(&pDrvDescPrivate->mdio_mutex);
+    mutex_destroy(&pDrvDescPrivate->mdio_order_mutex);
+
+    S_apDrvDescPrivate[pDrvDescPrivate->MacInfo.dwIndex] = NULL;
+
+    /* drop a possible EcMaster reference (memory mapping uses pPlatformDev == NULL here) */
+    if (NULL != pDrvDescPrivate->pDevDesc)
+    {
+        pDrvDescPrivate->pDevDesc->pDrvDesc = NULL;
+        pDrvDescPrivate->pDevDesc = NULL;
+    }
+
+    free_netdev(pDrvDescPrivate->netdev);
+
+    pPciDrvDescPrivate->pPhyDrvDesc = NULL;
+}
+#endif /* INCLUDE_ATEMSYS_DT_DRIVER */
+
 static void PciDriverRemove(struct pci_dev* pPciDev)
 {
     ATEMSYS_T_PCI_DRV_DESC_PRIVATE* pPciDrvDescPrivate = (ATEMSYS_T_PCI_DRV_DESC_PRIVATE*)pci_get_drvdata(pPciDev);
 
     if (NULL != pPciDrvDescPrivate)
     {
+#if (defined INCLUDE_ATEMSYS_DT_DRIVER)
+        /* tear down optional PHY instance */
+        PciDriverRemovePhy(pPciDrvDescPrivate);
+#endif
+
         /* remove references to the device */
         if (NULL != pPciDrvDescPrivate->pDevDesc)
         {
@@ -5008,6 +5239,18 @@ static int PciDriverProbe(struct pci_dev* pPciDev, const struct pci_device_id* i
     }
 
     pci_set_drvdata(pPciDev, pPciDrvDescPrivate);
+
+#if (defined INCLUDE_ATEMSYS_DT_DRIVER)
+    /* optional: attach PHY handling if the device tree describes this PCI function */
+    {
+        int nPhyRes = PciDriverProbePhy(pPciDev, pPciDrvDescPrivate);
+        if (0 != nPhyRes)
+        {
+            DBG("%s: %s: PHY handling setup failed (%d), continuing without PHY\n",
+                pci_name(pPciDev), ATEMSYS_PCI_DRIVER_NAME, nPhyRes);
+        }
+    }
+#endif
 
     nRes = 0; /* OK */
 Exit:

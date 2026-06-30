@@ -157,6 +157,10 @@
  *  V1.4.38 - Add support for IEEE 802.3 Clause 45 protocol to Device Tree Ethernet driver
  *            Add support for multiple clocks and resets
  *            Fix support gpio phy reset device tree overlays
+ *  V1.4.39 - Fix runtime IOMMU support by keeping DMA coherency configuration of IOMMU mapped devices
+ *            Add dma-coherent support: cached user space mapping of the DMA memory for
+ *            devices with cache coherent DMA (e.g. device tree property "dma-coherent")
+ *          - Add PHY management for PCI devices described in the device tree (atemsys_pci)
  *  atemsys is shared across EC-Master V2.7+
 
  *----------------------------------------------------------------------------*/
@@ -171,10 +175,10 @@
 #define EC_ATEMSYSVERSION(a,b,c) (((a)<<2*8)+((b)<<1*8)+((c)<<0*8))
 #endif
 
-#define ATEMSYS_VERSION_STR "1.4.38"
-#define ATEMSYS_VERSION_NUM  1,4,38
+#define ATEMSYS_VERSION_STR "1.4.39"
+#define ATEMSYS_VERSION_NUM  1,4,39
 #if (defined ATEMSYS_C)
-#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,38)
+#define USE_ATEMSYS_API_VERSION EC_ATEMSYSVERSION(1,4,39)
 #endif
 
 /* support selection */
@@ -384,7 +388,8 @@ typedef struct
     __u32                       dwErrorCode;                        /* [in]     Error code defined in SDK/INC/EcError.h */
     __u32                       bPhyResetSupported;                 /* [in]     Device tree has data for phy reset */
     __u32                       bPhyC45Required;                    /* [in]     IEEE 802.3 Clause 45 protocol required */
-    __u32                       dwReserved[14];
+    __u32                       bIommuSupported;                    /* [in]     Device tree has data for IOMMU */
+    __u32                       dwReserved[13];
 } __attribute__((packed)) ATEMSYS_T_MAC_INFO;
 
 typedef struct
